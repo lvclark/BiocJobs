@@ -1,0 +1,340 @@
+## Galaxy target.
+##
+## A job maps onto a single Galaxy tool: file inputs become `data` params,
+## options become typed params (boolean/select/text/integer/float), outputs
+## become `data` outputs, and the command block runs the same canonical
+## `Rscript -e 'BiocJobs::execJob(...)'` invocation used everywhere else.
+## Requirements name the bioconda packages (`bioconductor-<pkg>`), which
+## Galaxy resolves to conda environments or BioContainers images.
+
+## Walk up from the spec file to the package root (source or installed
+## layout) to read DESCRIPTION fields at generation time.
+.specPkgRoot <- function(job) {
+    dir <- dirname(job[["_path"]])
+    for (i in 1:4) {
+        if (file.exists(file.path(dir, "DESCRIPTION")))
+            return(dir)
+        parent <- dirname(dir)
+        if (identical(parent, dir))
+            break
+        dir <- parent
+    }
+    NULL
+}
+
+.hostPkgVersion <- function(job) {
+    root <- .specPkgRoot(job)
+    if (!is.null(root)) {
+        dcf <- read.dcf(file.path(root, "DESCRIPTION"))
+        if ("Version" %in% colnames(dcf))
+            return(unname(dcf[1L, "Version"]))
+    }
+    v <- tryCatch(as.character(utils::packageVersion(job$package)),
+                  error = function(e) NULL)
+    v %||% "0.1.0"
+}
+
+.biocjobsVersion <- function() {
+    tryCatch(as.character(utils::packageVersion("BiocJobs")),
+             error = function(e) "0.1.0")
+}
+
+.galaxyToolId <- function(job) {
+    id <- paste("biocjobs", tolower(job$package), job$name, sep = "_")
+    gsub("[^a-z0-9_]", "_", id)
+}
+
+#' Generate a Galaxy tool wrapper from a job
+#'
+#' Produces a complete Galaxy tool XML document for a job.  Inputs become
+#' `data` params, options become typed params, outputs become `data`
+#' outputs, and tests declared in the specification's `tests` section become
+#' `<test>` cases.
+#'
+#' @param job A `BiocJob` object, or path to a job YAML file.
+#' @param pkg_version Host package version for the bioconda requirement;
+#'   default: read from the package `DESCRIPTION` next to the spec, falling
+#'   back to the installed package.
+#' @param biocjobs_version BiocJobs version for its bioconda requirement.
+#' @param profile Galaxy tool profile version.
+#' @return An `xml2::xml_document`.
+#' @seealso [writeGalaxyTool()]
+#' @export
+galaxyTool <- function(job, pkg_version = NULL, biocjobs_version = NULL,
+                       profile = "23.0") {
+    if (is.character(job))
+        job <- readJob(job)
+    stopifnot(inherits(job, "BiocJob"))
+    pkg_version <- pkg_version %||% .hostPkgVersion(job)
+    biocjobs_version <- biocjobs_version %||% .biocjobsVersion()
+    job_version <- as.character(job$version %||% "0.1.0")
+
+    ## Tool identity follows the IUC convention: the wrapped package version
+    ## leads, so regenerating after a host package release yields a new tool
+    ## version; the job spec version rides in the local-version suffix.
+    doc <- xml2::xml_new_root(
+        "tool",
+        id = .galaxyToolId(job),
+        name = job$title,
+        version = paste0(pkg_version, "+biocjobs", job_version),
+        profile = profile,
+        license = job$license %||% "MIT"
+    )
+    xml2::xml_add_child(doc, "description", job$tagline %||% "")
+
+    ## Verbatim package name: bioconductor.org's resolver is case-sensitive
+    ## (packages/deseq2 -> "removed packages", packages/DESeq2 -> DESeq2).
+    xrefs <- xml2::xml_add_child(doc, "xrefs")
+    xml2::xml_add_child(xrefs, "xref", job$package, type = "bioconductor")
+
+    reqs <- xml2::xml_add_child(doc, "requirements")
+    xml2::xml_add_child(reqs, "requirement",
+                        paste0("bioconductor-", tolower(job$package)),
+                        type = "package", version = pkg_version)
+    xml2::xml_add_child(reqs, "requirement", "bioconductor-biocjobs",
+                        type = "package", version = biocjobs_version)
+
+    cmd <- xml2::xml_add_child(doc, "command", detect_errors = "exit_code")
+    xml2::xml_add_child(cmd, xml2::xml_cdata(.galaxyCommand(job)))
+
+    inputs <- xml2::xml_add_child(doc, "inputs")
+    for (e in job$inputs) {
+        p <- xml2::xml_add_child(
+            inputs, "param",
+            name = e$name, type = "data",
+            format = .formatInfo(e$format)$galaxy,
+            label = e$label %||% e$name
+        )
+        if (!is.null(e$help))
+            xml2::xml_set_attr(p, "help", e$help)
+        if (isFALSE(e$required))
+            xml2::xml_set_attr(p, "optional", "true")
+    }
+    for (o in job$options)
+        .galaxyOptionParam(inputs, o)
+
+    outputs <- xml2::xml_add_child(doc, "outputs")
+    for (e in job$outputs) {
+        xml2::xml_add_child(
+            outputs, "data",
+            name = e$name,
+            format = .formatInfo(e$format)$galaxy,
+            label = sprintf("${tool.name} on ${on_string}: %s",
+                            e$label %||% e$name)
+        )
+    }
+
+    if (length(job$tests)) {
+        tests <- xml2::xml_add_child(doc, "tests")
+        for (tc in job$tests)
+            .galaxyTestCase(tests, job, tc)
+    }
+
+    help <- xml2::xml_add_child(doc, "help")
+    xml2::xml_add_child(help, xml2::xml_cdata(.galaxyHelp(job)))
+
+    if (length(job$citations)) {
+        cites <- xml2::xml_add_child(doc, "citations")
+        for (ci in job$citations) {
+            if (!is.null(ci$doi))
+                xml2::xml_add_child(cites, "citation", ci$doi, type = "doi")
+            else if (!is.null(ci$bibtex))
+                xml2::xml_add_child(cites, "citation", ci$bibtex,
+                                    type = "bibtex")
+        }
+    }
+    doc
+}
+
+## The Cheetah command block: the canonical invocation with one
+## `--name '$name'` pair per declared parameter, one per line.
+.galaxyCommand <- function(job) {
+    lines <- c(sprintf("Rscript -e 'BiocJobs::execJob(\"%s\", \"%s\")'",
+                       job$package, job$name))
+    quote_val <- function(name, quoted = TRUE) {
+        if (quoted) sprintf("--%s '$%s'", name, name)
+        else sprintf("--%s $%s", name, name)
+    }
+    for (e in job$inputs) {
+        line <- quote_val(e$name)
+        if (isFALSE(e$required)) {
+            line <- sprintf("#if $%s\n%s\n#end if", e$name, line)
+        }
+        lines <- c(lines, line)
+    }
+    for (o in job$options) {
+        ## Numbers and booleans are shell-safe unquoted; quote the rest.
+        quoted <- !o$type %in% c("integer", "float", "boolean")
+        lines <- c(lines, quote_val(o$name, quoted))
+    }
+    for (e in job$outputs)
+        lines <- c(lines, quote_val(e$name))
+    paste0("\n", paste(lines, collapse = "\n"), "\n")
+}
+
+## One typed Galaxy param per option.
+.galaxyOptionParam <- function(inputs, o) {
+    p <- switch(
+        o$type,
+        boolean = {
+            n <- xml2::xml_add_child(
+                inputs, "param", name = o$name, type = "boolean",
+                truevalue = "true", falsevalue = "false",
+                checked = tolower(as.character(isTRUE(.coerceValue(
+                    o$default %||% FALSE, o)))),
+                label = o$label %||% o$name)
+            n
+        },
+        choice = {
+            n <- xml2::xml_add_child(inputs, "param", name = o$name,
+                                     type = "select",
+                                     label = o$label %||% o$name)
+            for (ch in as.character(o$choices)) {
+                opt <- xml2::xml_add_child(n, "option", ch, value = ch)
+                if (identical(ch, as.character(o$default %||% "")))
+                    xml2::xml_set_attr(opt, "selected", "true")
+            }
+            n
+        },
+        string = {
+            n <- xml2::xml_add_child(inputs, "param", name = o$name,
+                                     type = "text",
+                                     value = as.character(o$default %||% ""),
+                                     label = o$label %||% o$name)
+            if (isTRUE(o$required))
+                xml2::xml_add_child(n, "validator", type = "empty_field")
+            ## Permit characters beyond Galaxy's conservative default text
+            ## sanitizer (e.g. '~' in R formulas), as declared in the spec.
+            if (length(o$allow_chars)) {
+                san <- xml2::xml_add_child(n, "sanitizer",
+                                           invalid_char = "")
+                valid <- xml2::xml_add_child(san, "valid",
+                                             initial = "default")
+                for (ch in as.character(o$allow_chars))
+                    xml2::xml_add_child(valid, "add", value = ch)
+            }
+            n
+        },
+        integer = ,
+        float = {
+            n <- xml2::xml_add_child(inputs, "param", name = o$name,
+                                     type = o$type,
+                                     label = o$label %||% o$name)
+            if (!is.null(o$default))
+                xml2::xml_set_attr(n, "value", as.character(o$default))
+            if (!is.null(o$min))
+                xml2::xml_set_attr(n, "min", as.character(o$min))
+            if (!is.null(o$max))
+                xml2::xml_set_attr(n, "max", as.character(o$max))
+            n
+        },
+        stop("unsupported option type: ", o$type)
+    )
+    if (!is.null(o$help))
+        xml2::xml_set_attr(p, "help", o$help)
+    invisible(p)
+}
+
+## A <test> case from a spec `tests` entry.
+.galaxyTestCase <- function(tests, job, tc) {
+    t <- xml2::xml_add_child(tests, "test")
+    for (e in job$inputs) {
+        v <- tc$inputs[[e$name]]
+        if (!is.null(v))
+            xml2::xml_add_child(t, "param", name = e$name, value = basename(v),
+                                ftype = .formatInfo(e$format)$galaxy)
+    }
+    for (o in job$options) {
+        v <- tc$options[[o$name]]
+        if (!is.null(v)) {
+            if (isTRUE(v))  v <- "true"
+            if (isFALSE(v)) v <- "false"
+            xml2::xml_add_child(t, "param", name = o$name,
+                                value = as.character(v))
+        }
+    }
+    for (e in job$outputs) {
+        spec <- tc$outputs[[e$name]]
+        node <- xml2::xml_add_child(t, "output", name = e$name)
+        if (!is.null(spec$file)) {
+            xml2::xml_set_attr(node, "file", basename(spec$file))
+            xml2::xml_set_attr(node, "compare", spec$compare %||% "sim_size")
+            if (!is.null(spec$delta))
+                xml2::xml_set_attr(node, "delta", as.character(spec$delta))
+        } else {
+            ac <- xml2::xml_add_child(node, "assert_contents")
+            if (!is.null(spec$has_text))
+                xml2::xml_add_child(ac, "has_text", text = spec$has_text)
+            else
+                xml2::xml_add_child(ac, "has_size", min = "1")
+        }
+    }
+    invisible(t)
+}
+
+## reStructuredText help section.
+.galaxyHelp <- function(job) {
+    para <- function(...) paste0(..., "\n")
+    txt <- c(
+        "",
+        paste0("**", job$title, "**"),
+        "",
+        job$description %||% "",
+        "",
+        "**Inputs**",
+        "",
+        vapply(job$inputs, function(e)
+            sprintf("- *%s* (%s): %s", e$label %||% e$name, e$format,
+                    e$help %||% ""), ""),
+        "",
+        "**Outputs**",
+        "",
+        vapply(job$outputs, function(e)
+            sprintf("- *%s* (%s): %s", e$label %||% e$name, e$format,
+                    e$help %||% ""), ""),
+        "",
+        sprintf(paste0("This tool was generated automatically by BiocJobs ",
+                       "from the job specification `%s` shipped in ",
+                       "Bioconductor package **%s**."),
+                job$name, job$package),
+        ""
+    )
+    paste(txt, collapse = "\n")
+}
+
+#' Write a Galaxy tool wrapper to a file
+#'
+#' Writes the tool XML and, when `job` is supplied and declares tests,
+#' stages the referenced test files into a `test-data/` directory next to
+#' the XML — the layout Galaxy's test framework and `planemo test` require.
+#'
+#' @param doc An `xml2::xml_document` from [galaxyTool()].
+#' @param file Output path (conventionally `<tool_id>.xml`).
+#' @param job The `BiocJob` the tool was generated from; enables test-data
+#'   staging.  Test file paths are resolved against the host package root.
+#' @return `file`, invisibly.
+#' @export
+writeGalaxyTool <- function(doc, file, job = NULL) {
+    xml2::write_xml(doc, file)
+    if (!is.null(job) && length(job$tests)) {
+        root <- .specPkgRoot(job)
+        dest <- file.path(dirname(file), "test-data")
+        for (tc in job$tests) {
+            files <- c(unlist(tc$inputs),
+                       unlist(lapply(tc$outputs, function(o)
+                           if (is.list(o)) o$file else NULL)))
+            for (f in as.character(files)) {
+                src <- if (!is.null(root)) file.path(root, f) else f
+                if (!file.exists(src)) {
+                    warning("test file not staged (not found): ", src)
+                    next
+                }
+                if (!dir.exists(dest))
+                    dir.create(dest, recursive = TRUE)
+                file.copy(src, file.path(dest, basename(f)),
+                          overwrite = TRUE)
+            }
+        }
+    }
+    invisible(file)
+}

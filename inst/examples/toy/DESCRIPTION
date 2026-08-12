@@ -1,0 +1,6 @@
+Package: toy
+Title: Toy Package Demonstrating BiocJobs Job Declarations
+Version: 1.2.3
+Description: A minimal package skeleton whose only purpose is to carry an
+    inst/biocjobs/ directory for BiocJobs examples and tests.
+License: Artistic-2.0

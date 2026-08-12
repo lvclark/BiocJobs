@@ -1,0 +1,10 @@
+Package: DESeq2
+Type: Package
+Title: Differential gene expression analysis based on the negative
+    binomial distribution
+Version: 1.52.0
+Description: Stub of the DESeq2 DESCRIPTION carrying only the fields
+    BiocJobs reads at generation time (package name and version). In the
+    real package, the two files under inst/biocjobs/ are simply added to the
+    existing source tree; nothing else changes.
+License: LGPL (>= 3)

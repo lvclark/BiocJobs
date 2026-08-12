@@ -1,0 +1,116 @@
+{
+  "package": "DESeq2",
+  "version": "1.52.0",
+  "biocjobs": "1.0",
+  "jobs": [
+    {
+      "name": "deseq2-differential-expression",
+      "title": "DESeq2 differential expression",
+      "description": "Runs the canonical DESeq2 workflow on a raw count matrix: size factor and dispersion estimation, negative-binomial GLM fitting and a Wald test for one pairwise contrast, with optional independent pre-filtering and log2-fold-change shrinkage. Produces the per-gene results table, the median-of-ratios normalized counts, and an MA plot.\n",
+      "version": "1.0.0",
+      "script": "scripts/deseq2-differential-expression.R",
+      "inputs": [
+        {
+          "name": "counts",
+          "format": "tsv",
+          "label": "Raw count matrix",
+          "required": true
+        },
+        {
+          "name": "coldata",
+          "format": "tsv",
+          "label": "Sample table",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "results",
+          "format": "tsv",
+          "label": "Differential expression results"
+        },
+        {
+          "name": "normalized_counts",
+          "format": "tsv",
+          "label": "Normalized counts"
+        },
+        {
+          "name": "ma_plot",
+          "format": "pdf",
+          "label": "MA plot"
+        }
+      ],
+      "options": [
+        {
+          "name": "design",
+          "type": "string",
+          "label": "Design formula",
+          "required": false,
+          "default": "~ condition"
+        },
+        {
+          "name": "contrast_factor",
+          "type": "string",
+          "label": "Factor to test",
+          "required": true
+        },
+        {
+          "name": "contrast_numerator",
+          "type": "string",
+          "label": "Treatment level (numerator)",
+          "required": true
+        },
+        {
+          "name": "contrast_denominator",
+          "type": "string",
+          "label": "Reference level (denominator)",
+          "required": true
+        },
+        {
+          "name": "alpha",
+          "type": "float",
+          "label": "FDR threshold (alpha)",
+          "required": false,
+          "default": 0.1
+        },
+        {
+          "name": "shrinkage",
+          "type": "choice",
+          "label": "Log2 fold change shrinkage",
+          "required": false,
+          "default": "apeglm",
+          "choices": ["apeglm", "ashr", "normal", "none"]
+        },
+        {
+          "name": "prefilter",
+          "type": "boolean",
+          "label": "Pre-filter low-count genes",
+          "required": false,
+          "default": true
+        },
+        {
+          "name": "prefilter_min_count",
+          "type": "integer",
+          "label": "Pre-filter minimum count",
+          "required": false,
+          "default": 10
+        },
+        {
+          "name": "prefilter_min_samples",
+          "type": "integer",
+          "label": "Pre-filter minimum samples",
+          "required": false,
+          "default": 0
+        }
+      ],
+      "resources": {
+        "cpus": 1,
+        "memory_gb": 4,
+        "disk_gb": 10
+      },
+      "depends": ["apeglm", "ashr"],
+      "container": "bioconductor/bioconductor_docker:RELEASE_3_23",
+      "command": ["Rscript", "-e", "BiocJobs::execJob(\"DESeq2\", \"deseq2-differential-expression\")"]
+    }
+  ]
+}

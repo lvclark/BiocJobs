@@ -1,0 +1,105 @@
+{
+  "name": "DESeq2/deseq2-differential-expression",
+  "description": "Runs the canonical DESeq2 workflow on a raw count matrix: size factor and dispersion estimation, negative-binomial GLM fitting and a Wald test for one pairwise contrast, with optional independent pre-filtering and log2-fold-change shrinkage. Produces the per-gene results table, the median-of-ratios normalized counts, and an MA plot.\n",
+  "inputs": [
+    {
+      "name": "counts",
+      "description": "Raw count matrix",
+      "url": "{{inputs.counts.url}}",
+      "path": "/tmp/biocjob/inputs/counts.tsv",
+      "type": "FILE"
+    },
+    {
+      "name": "coldata",
+      "description": "Sample table",
+      "url": "{{inputs.coldata.url}}",
+      "path": "/tmp/biocjob/inputs/coldata.tsv",
+      "type": "FILE"
+    }
+  ],
+  "outputs": [
+    {
+      "name": "results",
+      "description": "Differential expression results",
+      "url": "{{outputs.results.url}}",
+      "path": "/tmp/biocjob/outputs/results.tsv",
+      "type": "FILE"
+    },
+    {
+      "name": "normalized_counts",
+      "description": "Normalized counts",
+      "url": "{{outputs.normalized_counts.url}}",
+      "path": "/tmp/biocjob/outputs/normalized_counts.tsv",
+      "type": "FILE"
+    },
+    {
+      "name": "ma_plot",
+      "description": "MA plot",
+      "url": "{{outputs.ma_plot.url}}",
+      "path": "/tmp/biocjob/outputs/ma_plot.pdf",
+      "type": "FILE"
+    }
+  ],
+  "resources": {
+    "cpu_cores": 1,
+    "ram_gb": 4,
+    "disk_gb": 10
+  },
+  "executors": [
+    {
+      "image": "bioconductor/bioconductor_docker:RELEASE_3_23",
+      "command": [
+        "Rscript",
+        "-e",
+        "missing <- setdiff(c(\"BiocJobs\", \"DESeq2\", \"apeglm\", \"ashr\"), rownames(installed.packages())); if (length(missing)) BiocManager::install(missing, update = FALSE, ask = FALSE)"
+      ],
+      "workdir": "/tmp/biocjob"
+    },
+    {
+      "image": "bioconductor/bioconductor_docker:RELEASE_3_23",
+      "command": [
+        "Rscript",
+        "-e",
+        "BiocJobs::execJob(\"DESeq2\", \"deseq2-differential-expression\")",
+        "--counts",
+        "/tmp/biocjob/inputs/counts.tsv",
+        "--coldata",
+        "/tmp/biocjob/inputs/coldata.tsv",
+        "--results",
+        "/tmp/biocjob/outputs/results.tsv",
+        "--normalized_counts",
+        "/tmp/biocjob/outputs/normalized_counts.tsv",
+        "--ma_plot",
+        "/tmp/biocjob/outputs/ma_plot.pdf",
+        "--design",
+        "~ condition",
+        "--contrast_factor",
+        "{{options.contrast_factor}}",
+        "--contrast_numerator",
+        "{{options.contrast_numerator}}",
+        "--contrast_denominator",
+        "{{options.contrast_denominator}}",
+        "--alpha",
+        "0.1",
+        "--shrinkage",
+        "apeglm",
+        "--prefilter",
+        "true",
+        "--prefilter_min_count",
+        "10",
+        "--prefilter_min_samples",
+        "0"
+      ],
+      "workdir": "/tmp/biocjob"
+    }
+  ],
+  "volumes": [
+    "/tmp/biocjob"
+  ],
+  "tags": {
+    "biocjobs.package": "DESeq2",
+    "biocjobs.job": "deseq2-differential-expression",
+    "biocjobs.spec": "1.0",
+    "biocjobs.template": "true"
+  }
+}

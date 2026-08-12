@@ -1,0 +1,43 @@
+biocjobs: "1.0"
+name: toy-normalize
+package: toy
+title: Toy matrix normalization
+tagline: normalize a numeric matrix
+description: >
+  Reads a numeric matrix, applies a normalization method, and writes the
+  result. This job exists to demonstrate and test the BiocJobs framework;
+  it has no scientific value.
+version: "1.0.0"
+script: scripts/toy-normalize.R
+
+inputs:
+  - name: matrix
+    format: tsv
+    label: Numeric matrix
+    help: Tab-separated numeric matrix with row names in the first column.
+
+outputs:
+  - name: normalized
+    format: tsv
+    label: Normalized matrix
+
+options:
+  - name: method
+    type: choice
+    choices: [log2, zscore, none]
+    default: log2
+    label: Normalization method
+  - name: center
+    type: boolean
+    default: false
+    label: Center columns after normalization
+  - name: pseudocount
+    type: float
+    default: 1.0
+    label: Pseudocount
+    help: Added to every value before log transformation.
+
+resources:
+  cpus: 1
+  memory_gb: 1
+  disk_gb: 1

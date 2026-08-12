@@ -1,0 +1,143 @@
+# BiocJobs job specification.
+# This file, together with scripts/deseq2-differential-expression.R, is all
+# a package maintainer adds to make this analysis dispatchable.
+biocjobs: "1.0"
+name: deseq2-differential-expression
+package: DESeq2
+title: DESeq2 differential expression
+tagline: pairwise differential expression from a raw count matrix
+description: >
+  Runs the canonical DESeq2 workflow on a raw count matrix: size factor and
+  dispersion estimation, negative-binomial GLM fitting and a Wald test for
+  one pairwise contrast, with optional independent pre-filtering and
+  log2-fold-change shrinkage. Produces the per-gene results table, the
+  median-of-ratios normalized counts, and an MA plot.
+version: "1.0.0"
+license: MIT
+script: scripts/deseq2-differential-expression.R
+depends: [apeglm, ashr]   # runtime deps beyond the host package (shrinkage)
+
+inputs:
+  - name: counts
+    format: tsv
+    label: Raw count matrix
+    help: >
+      Tab-separated matrix of raw (un-normalized) integer read counts:
+      first column gene identifiers, one further column per sample.
+      Do not supply TPM/FPKM or otherwise normalized values.
+  - name: coldata
+    format: tsv
+    label: Sample table
+    help: >
+      Tab-separated sample annotation: first column sample identifiers
+      matching the count matrix column names, one further column per
+      covariate (e.g. condition, batch). Every variable used in the design
+      formula must be a column of this table.
+
+outputs:
+  - name: results
+    format: tsv
+    label: Differential expression results
+    help: >
+      Per-gene table (baseMean, log2FoldChange, lfcSE, pvalue, padj, and
+      stat for unshrunken results), ordered by adjusted p-value.
+  - name: normalized_counts
+    format: tsv
+    label: Normalized counts
+    help: Median-of-ratios normalized counts for all retained genes.
+  - name: ma_plot
+    format: pdf
+    label: MA plot
+
+options:
+  - name: design
+    type: string
+    default: "~ condition"
+    label: Design formula
+    help: >
+      R formula over sample table columns. Control for covariates by
+      putting them first; the tested variable comes last
+      (e.g. "~ batch + condition").
+    allow_chars: ["~"]
+  - name: contrast_factor
+    type: string
+    required: true
+    label: Factor to test
+    help: Sample table column containing the tested condition.
+  - name: contrast_numerator
+    type: string
+    required: true
+    label: Treatment level (numerator)
+    help: Level of the tested factor whose effect is reported.
+  - name: contrast_denominator
+    type: string
+    required: true
+    label: Reference level (denominator)
+    help: Baseline level the treatment is compared against.
+  - name: alpha
+    type: float
+    default: 0.1
+    min: 0
+    max: 1
+    label: FDR threshold (alpha)
+    help: >
+      Significance cutoff used to optimize independent filtering. Set it
+      to the adjusted p-value threshold you will actually use.
+  - name: shrinkage
+    type: choice
+    choices: [apeglm, ashr, normal, none]
+    default: apeglm
+    label: Log2 fold change shrinkage
+    help: >
+      Shrinkage estimator applied to the reported log2 fold changes;
+      "apeglm" is the recommended default, "none" reports maximum
+      likelihood estimates.
+  - name: prefilter
+    type: boolean
+    default: true
+    label: Pre-filter low-count genes
+    help: Remove genes with insufficient counts before testing.
+  - name: prefilter_min_count
+    type: integer
+    default: 10
+    min: 1
+    label: Pre-filter minimum count
+  - name: prefilter_min_samples
+    type: integer
+    default: 0
+    min: 0
+    label: Pre-filter minimum samples
+    help: >
+      Keep genes with at least the minimum count in at least this many
+      samples. 0 (default) means automatic: the size of the smallest
+      group of the tested factor.
+
+resources:
+  cpus: 1
+  memory_gb: 4
+  disk_gb: 10
+
+citations:
+  - doi: 10.1186/s13059-014-0550-8   # Love, Huber, Anders (2014) DESeq2
+  - doi: 10.1093/bioinformatics/bty895   # Zhu, Ibrahim, Love (2018) apeglm
+
+tests:
+  - inputs:
+      counts: test-data/counts.tsv
+      coldata: test-data/coldata.tsv
+    options:
+      design: "~ condition"
+      contrast_factor: condition
+      contrast_numerator: treated
+      contrast_denominator: control
+      shrinkage: apeglm
+    outputs:
+      results:
+        file: test-data/results.tsv
+        compare: sim_size
+        delta: 3000
+      normalized_counts:
+        file: test-data/normalized_counts.tsv
+        compare: sim_size
+        delta: 3000
+      ma_plot: {}

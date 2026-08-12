@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<tool id="biocjobs_deseq2_deseq2_differential_expression" name="DESeq2 differential expression" version="1.52.0+biocjobs1.0.0" profile="23.0" license="MIT">
+  <description>pairwise differential expression from a raw count matrix</description>
+  <xrefs>
+    <xref type="bioconductor">DESeq2</xref>
+  </xrefs>
+  <requirements>
+    <requirement type="package" version="1.52.0">bioconductor-deseq2</requirement>
+    <requirement type="package" version="0.1.0">bioconductor-biocjobs</requirement>
+  </requirements>
+  <command detect_errors="exit_code"><![CDATA[
+Rscript -e 'BiocJobs::execJob("DESeq2", "deseq2-differential-expression")'
+--counts '$counts'
+--coldata '$coldata'
+--design '$design'
+--contrast_factor '$contrast_factor'
+--contrast_numerator '$contrast_numerator'
+--contrast_denominator '$contrast_denominator'
+--alpha $alpha
+--shrinkage '$shrinkage'
+--prefilter $prefilter
+--prefilter_min_count $prefilter_min_count
+--prefilter_min_samples $prefilter_min_samples
+--results '$results'
+--normalized_counts '$normalized_counts'
+--ma_plot '$ma_plot'
+]]></command>
+  <inputs>
+    <param name="counts" type="data" format="tabular" label="Raw count matrix" help="Tab-separated matrix of raw (un-normalized) integer read counts: first column gene identifiers, one further column per sample. Do not supply TPM/FPKM or otherwise normalized values.&#10;"/>
+    <param name="coldata" type="data" format="tabular" label="Sample table" help="Tab-separated sample annotation: first column sample identifiers matching the count matrix column names, one further column per covariate (e.g. condition, batch). Every variable used in the design formula must be a column of this table.&#10;"/>
+    <param name="design" type="text" value="~ condition" label="Design formula" help="R formula over sample table columns. Control for covariates by putting them first; the tested variable comes last (e.g. &quot;~ batch + condition&quot;).&#10;">
+      <sanitizer invalid_char="">
+        <valid initial="default">
+          <add value="~"/>
+        </valid>
+      </sanitizer>
+    </param>
+    <param name="contrast_factor" type="text" value="" label="Factor to test" help="Sample table column containing the tested condition.">
+      <validator type="empty_field"/>
+    </param>
+    <param name="contrast_numerator" type="text" value="" label="Treatment level (numerator)" help="Level of the tested factor whose effect is reported.">
+      <validator type="empty_field"/>
+    </param>
+    <param name="contrast_denominator" type="text" value="" label="Reference level (denominator)" help="Baseline level the treatment is compared against.">
+      <validator type="empty_field"/>
+    </param>
+    <param name="alpha" type="float" label="FDR threshold (alpha)" value="0.1" min="0" max="1" help="Significance cutoff used to optimize independent filtering. Set it to the adjusted p-value threshold you will actually use.&#10;"/>
+    <param name="shrinkage" type="select" label="Log2 fold change shrinkage" help="Shrinkage estimator applied to the reported log2 fold changes; &quot;apeglm&quot; is the recommended default, &quot;none&quot; reports maximum likelihood estimates.&#10;">
+      <option value="apeglm" selected="true">apeglm</option>
+      <option value="ashr">ashr</option>
+      <option value="normal">normal</option>
+      <option value="none">none</option>
+    </param>
+    <param name="prefilter" type="boolean" truevalue="true" falsevalue="false" checked="true" label="Pre-filter low-count genes" help="Remove genes with insufficient counts before testing."/>
+    <param name="prefilter_min_count" type="integer" label="Pre-filter minimum count" value="10" min="1"/>
+    <param name="prefilter_min_samples" type="integer" label="Pre-filter minimum samples" value="0" min="0" help="Keep genes with at least the minimum count in at least this many samples. 0 (default) means automatic: the size of the smallest group of the tested factor.&#10;"/>
+  </inputs>
+  <outputs>
+    <data name="results" format="tabular" label="${tool.name} on ${on_string}: Differential expression results"/>
+    <data name="normalized_counts" format="tabular" label="${tool.name} on ${on_string}: Normalized counts"/>
+    <data name="ma_plot" format="pdf" label="${tool.name} on ${on_string}: MA plot"/>
+  </outputs>
+  <tests>
+    <test>
+      <param name="counts" value="counts.tsv" ftype="tabular"/>
+      <param name="coldata" value="coldata.tsv" ftype="tabular"/>
+      <param name="design" value="~ condition"/>
+      <param name="contrast_factor" value="condition"/>
+      <param name="contrast_numerator" value="treated"/>
+      <param name="contrast_denominator" value="control"/>
+      <param name="shrinkage" value="apeglm"/>
+      <output name="results" file="results.tsv" compare="sim_size" delta="3000"/>
+      <output name="normalized_counts" file="normalized_counts.tsv" compare="sim_size" delta="3000"/>
+      <output name="ma_plot">
+        <assert_contents>
+          <has_size min="1"/>
+        </assert_contents>
+      </output>
+    </test>
+  </tests>
+  <help><![CDATA[
+**DESeq2 differential expression**
+
+Runs the canonical DESeq2 workflow on a raw count matrix: size factor and dispersion estimation, negative-binomial GLM fitting and a Wald test for one pairwise contrast, with optional independent pre-filtering and log2-fold-change shrinkage. Produces the per-gene results table, the median-of-ratios normalized counts, and an MA plot.
+
+
+**Inputs**
+
+- *Raw count matrix* (tsv): Tab-separated matrix of raw (un-normalized) integer read counts: first column gene identifiers, one further column per sample. Do not supply TPM/FPKM or otherwise normalized values.
+
+- *Sample table* (tsv): Tab-separated sample annotation: first column sample identifiers matching the count matrix column names, one further column per covariate (e.g. condition, batch). Every variable used in the design formula must be a column of this table.
+
+
+**Outputs**
+
+- *Differential expression results* (tsv): Per-gene table (baseMean, log2FoldChange, lfcSE, pvalue, padj, and stat for unshrunken results), ordered by adjusted p-value.
+
+- *Normalized counts* (tsv): Median-of-ratios normalized counts for all retained genes.
+- *MA plot* (pdf): 
+
+This tool was generated automatically by BiocJobs from the job specification `deseq2-differential-expression` shipped in Bioconductor package **DESeq2**.
+]]></help>
+  <citations>
+    <citation type="doi">10.1186/s13059-014-0550-8</citation>
+    <citation type="doi">10.1093/bioinformatics/bty895</citation>
+  </citations>
+</tool>
