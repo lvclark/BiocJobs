@@ -11,7 +11,7 @@
 ## layout) to read DESCRIPTION fields at generation time.
 .specPkgRoot <- function(job) {
     dir <- dirname(job[["_path"]])
-    for (i in 1:4) {
+    for (i in seq_len(4L)) {
         if (file.exists(file.path(dir, "DESCRIPTION")))
             return(dir)
         parent <- dirname(dir)
@@ -59,6 +59,26 @@
 #' @param profile Galaxy tool profile version.
 #' @return An `xml2::xml_document`.
 #' @seealso [writeGalaxyTool()]
+#' @examples
+#' toy <- system.file("examples", "toy", package = "BiocJobs")
+#' job <- readJob(file.path(toy, "inst", "biocjobs", "toy-normalize.yaml"))
+#'
+#' doc <- galaxyTool(job)
+#' xml2::xml_attr(doc, "id")
+#'
+#' ## Tool versioning follows the IUC convention: the wrapped package
+#' ## version leads, so a Bioconductor release yields a new tool version.
+#' xml2::xml_attr(doc, "version")
+#'
+#' ## The command block is the canonical invocation, one --flag per
+#' ## declared parameter.
+#' cat(xml2::xml_text(xml2::xml_find_first(doc, "//command")))
+#'
+#' ## Options become typed Galaxy params: a select for `method`, a boolean
+#' ## for `center`, a bounded float for `pseudocount`.
+#' params <- xml2::xml_find_all(doc, "//inputs/param")
+#' data.frame(name = xml2::xml_attr(params, "name"),
+#'            type = xml2::xml_attr(params, "type"))
 #' @export
 galaxyTool <- function(job, pkg_version = NULL, biocjobs_version = NULL,
                        profile = "23.0") {
@@ -308,11 +328,26 @@ galaxyTool <- function(job, pkg_version = NULL, biocjobs_version = NULL,
 #' stages the referenced test files into a `test-data/` directory next to
 #' the XML — the layout Galaxy's test framework and `planemo test` require.
 #'
-#' @param doc An `xml2::xml_document` from [galaxyTool()].
+#' @param doc An `xml2::xml_document`, as produced by
+#'   [galaxyTool()].
 #' @param file Output path (conventionally `<tool_id>.xml`).
 #' @param job The `BiocJob` the tool was generated from; enables test-data
 #'   staging.  Test file paths are resolved against the host package root.
 #' @return `file`, invisibly.
+#' @examples
+#' toy <- system.file("examples", "toy", package = "BiocJobs")
+#' job <- readJob(file.path(toy, "inst", "biocjobs", "toy-normalize.yaml"))
+#' doc <- galaxyTool(job)
+#'
+#' ## Write into the directory layout planemo expects: the tool XML, plus
+#' ## a test-data/ sibling holding any files the spec's tests reference.
+#' dir <- tempfile("galaxy_")
+#' dir.create(dir)
+#' path <- file.path(dir, "biocjobs_toy_toy_normalize.xml")
+#' writeGalaxyTool(doc, path, job = job)
+#'
+#' list.files(dir, recursive = TRUE)
+#' cat(head(readLines(path), 6), sep = "\n")
 #' @export
 writeGalaxyTool <- function(doc, file, job = NULL) {
     xml2::write_xml(doc, file)

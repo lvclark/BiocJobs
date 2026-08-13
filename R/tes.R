@@ -47,6 +47,30 @@
 #'   `image`.
 #' @return A list representing the TES task, class `"TesTask"`.
 #' @seealso [writeTesTask()]
+#' @examples
+#' toy <- system.file("examples", "toy", package = "BiocJobs")
+#' job <- readJob(file.path(toy, "inst", "biocjobs", "toy-normalize.yaml"))
+#'
+#' ## With no URLs supplied the task is a submission template: unknown
+#' ## values are emitted as {{...}} placeholders and tagged as such, so a
+#' ## submission system can refuse to POST it unfilled.
+#' template <- tesTask(job)
+#' template$inputs[[1]]$url
+#' template$tags$biocjobs.template
+#'
+#' ## Fill in the URLs and the task is ready to submit.
+#' task <- tesTask(job,
+#'                 inputs = c(matrix = "s3://bucket/counts.tsv"),
+#'                 outputs = c(normalized = "s3://bucket/normalized.tsv"),
+#'                 options = list(method = "zscore"))
+#' names(task)
+#' task$resources
+#'
+#' ## Inputs are staged to fixed container paths and the final executor
+#' ## runs the canonical command against them.
+#' last <- task$executors[[length(task$executors)]]
+#' last$image
+#' cat(paste(unlist(last$command), collapse = " "), "\n")
 #' @export
 tesTask <- function(job, inputs = character(), outputs = character(),
                     options = list(), image = NULL, workdir = "/tmp/biocjob",
@@ -165,6 +189,19 @@ tesTask <- function(job, inputs = character(), outputs = character(),
 #' @param task A `"TesTask"` object from [tesTask()].
 #' @param file Optional path; when supplied the JSON is written there.
 #' @return The JSON string, invisibly when `file` is given.
+#' @examples
+#' toy <- system.file("examples", "toy", package = "BiocJobs")
+#' job <- readJob(file.path(toy, "inst", "biocjobs", "toy-normalize.yaml"))
+#' task <- tesTask(job, inputs = c(matrix = "s3://bucket/counts.tsv"))
+#'
+#' ## Without `file` the JSON is returned, ready to POST to /tasks.
+#' json <- writeTesTask(task)
+#' substr(json, 1, 120)
+#'
+#' ## With `file` it is written for check-in beside the package.
+#' path <- file.path(tempdir(), "toy-normalize.tes.json")
+#' writeTesTask(task, file = path)
+#' cat(head(readLines(path), 12), sep = "\n")
 #' @export
 writeTesTask <- function(task, file = NULL) {
     stopifnot(inherits(task, "TesTask"))
