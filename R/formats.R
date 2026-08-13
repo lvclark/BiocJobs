@@ -6,10 +6,15 @@
 #' Galaxy datatype and extension) but `validateJob()` reports them as notes so
 #' typos are caught.
 #'
-#' @return A `data.frame` with columns `format`, `galaxy`, `extension` and
-#'   `description`.
+#' @return A `data.frame` with columns `format`, `galaxy`, `extension`
+#'   and `description`.
 #' @examples
-#' jobFormats()
+#' formats <- jobFormats()
+#' head(formats)
+#'
+#' ## What a spec's `format: tsv` means downstream: the Galaxy datatype of
+#' ## the generated param, and the file extension used for staged files.
+#' formats[formats$format %in% c("tsv", "fastq", "bam"), ]
 #' @export
 jobFormats <- function() {
     tab <- c(
@@ -35,7 +40,10 @@ jobFormats <- function() {
         "bam",       "bam",         "bam",      "Binary sequence alignments",
         "sam",       "sam",         "sam",      "Sequence alignments",
         "bigwig",    "bigwig",      "bw",       "BigWig signal track",
-        "h5",        "h5",          "h5",       "HDF5 container"
+        "h5",        "h5",          "h5",       "HDF5 container",
+        "tar",       "tar",         "tar",      "tar archive",
+        "tar.gz",    "tar.gz",      "tar.gz",   "gzip-compressed tar archive",
+        "zip",       "zip",         "zip",      "ZIP archive"
     )
     m <- matrix(tab, ncol = 4L, byrow = TRUE)
     data.frame(

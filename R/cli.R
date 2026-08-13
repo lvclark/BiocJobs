@@ -17,6 +17,8 @@ commands:
   manifest <pkg> [--out FILE]          write the package job manifest (JSON)
   tes      <pkg> <job> [--out FILE]    generate a TES task template (JSON)
   galaxy   <pkg> <job> [--out FILE]    generate a Galaxy tool wrapper (XML)
+  nextflow <pkg> <job> [--out FILE]    generate a Nextflow DSL2 module
+  wdl      <pkg> <job> [--out FILE]    generate a WDL task
   run      <pkg> <job> [--workdir DIR] [--<param> <value> ...]
                                        run a job locally
 
@@ -34,6 +36,28 @@ installed package name.
 #'   `commandArgs(trailingOnly = TRUE)`.
 #' @return Exits the process when non-interactive; otherwise returns
 #'   invisibly.
+#' @examples
+#' ## The CLI exists for shells and build infrastructure; from R, call the
+#' ## same functions it dispatches to.
+#' toy <- system.file("examples", "toy", package = "BiocJobs")
+#'
+#' jobs <- findJobs(toy)                 # biocjobsCLI(c("list", toy))
+#' names(jobs)
+#'
+#' issues <- validateJob(jobs[[1]])      # biocjobsCLI(c("validate", toy))
+#' length(issues)                        # 0 => the CLI would exit 0
+#'
+#' ## biocjobsCLI(c("nextflow", toy, "toy-normalize", "--out", out))
+#' out <- file.path(tempdir(), "toy_normalize.nf")
+#' nextflowModule(jobs[[1]], file = out)
+#' file.exists(out)
+#'
+#' \dontrun{
+#' ## From a shell.  Called non-interactively, biocjobsCLI() quits the
+#' ## session with the command's exit status, so it is the whole program:
+#' ##   Rscript -e 'BiocJobs::biocjobsCLI()' validate /path/to/pkg
+#' biocjobsCLI(c("validate", toy))
+#' }
 #' @export
 biocjobsCLI <- function(args = commandArgs(trailingOnly = TRUE)) {
     status <- tryCatch(.cliDispatch(args), error = function(e) {
@@ -58,7 +82,7 @@ biocjobsCLI <- function(args = commandArgs(trailingOnly = TRUE)) {
         return(0L)
     }
     if (!command %in% c("list", "validate", "manifest", "tes", "galaxy",
-                        "run"))
+                        "nextflow", "wdl", "run"))
         stop("unknown command '", command, "'")
     if (!length(rest))
         stop("command '", command, "' needs a package argument")
@@ -110,7 +134,9 @@ biocjobsCLI <- function(args = commandArgs(trailingOnly = TRUE)) {
             0L
         },
         tes = ,
-        galaxy = {
+        galaxy = ,
+        nextflow = ,
+        wdl = {
             if (!length(rest))
                 stop("command '", command, "' needs a job name")
             jobname <- rest[[1L]]
@@ -121,11 +147,17 @@ biocjobsCLI <- function(args = commandArgs(trailingOnly = TRUE)) {
                 json <- writeTesTask(task, file = opts$out)
                 if (is.null(opts$out)) cat(json, "\n")
                 else message("wrote ", opts$out)
-            } else {
+            } else if (identical(command, "galaxy")) {
                 doc <- galaxyTool(job)
                 out <- opts$out %||% paste0(.galaxyToolId(job), ".xml")
                 writeGalaxyTool(doc, out, job = job)
                 message("wrote ", out)
+            } else {
+                generate <- if (identical(command, "nextflow"))
+                    nextflowModule else wdlTask
+                text <- generate(job, file = opts$out)
+                if (is.null(opts$out)) cat(text, "\n")
+                else message("wrote ", opts$out)
             }
             0L
         },
