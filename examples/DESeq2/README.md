@@ -15,6 +15,9 @@ fields BiocJobs reads at generation time).
 | `generated/deseq2-differential-expression.tes.json` | GA4GH TES 1.1 task template | `biocjobsCLI tes` |
 | `generated/deseq2_differential_expression.xml` | Galaxy tool wrapper | `biocjobsCLI galaxy` |
 | `generated/test-data/` | test files staged beside the tool XML (planemo layout) | `biocjobsCLI galaxy` |
+| `generated/deseq2_differential_expression.nf` | Nextflow DSL2 module | `biocjobsCLI nextflow` |
+| `generated/deseq2_differential_expression.wdl` | WDL 1.0 task | `biocjobsCLI wdl` |
+| `exec/DESeq2.R` | compiled CLI app (one subcommand per job) | `BiocExecute::execCompile()` |
 | `generated/manifest.json` | package job manifest for registry aggregation | `biocjobsCLI manifest` |
 
 Regenerate everything (from the repository root, with BiocJobs installed):
@@ -23,7 +26,26 @@ Regenerate everything (from the repository root, with BiocJobs installed):
 Rscript -e 'BiocJobs::biocjobsCLI()' validate examples/DESeq2
 Rscript -e 'BiocJobs::biocjobsCLI()' tes      examples/DESeq2 deseq2-differential-expression --out examples/DESeq2/generated/deseq2-differential-expression.tes.json
 Rscript -e 'BiocJobs::biocjobsCLI()' galaxy   examples/DESeq2 deseq2-differential-expression --out examples/DESeq2/generated/deseq2_differential_expression.xml
+Rscript -e 'BiocJobs::biocjobsCLI()' nextflow examples/DESeq2 deseq2-differential-expression --out examples/DESeq2/generated/deseq2_differential_expression.nf
+Rscript -e 'BiocJobs::biocjobsCLI()' wdl      examples/DESeq2 deseq2-differential-expression --out examples/DESeq2/generated/deseq2_differential_expression.wdl
 Rscript -e 'BiocJobs::biocjobsCLI()' manifest examples/DESeq2 --out examples/DESeq2/generated/manifest.json
+Rscript -e "BiocExecute::execCompile('examples/DESeq2')"
+```
+
+Run the compiled CLI. The `exec/DESeq2.R` app itself only calls
+`BiocJobs::execJob()` and `Rapp::run()`, so running it needs just BiocJobs
+and Rapp; the BiocExecute `feat/biocjobs-specs` branch is only needed to
+*regenerate* it with `execCompile()`. During development point
+`BIOCJOBS_SPEC` at the YAML, since the spec is not installed with the real
+DESeq2:
+
+```bash
+BIOCJOBS_SPEC=examples/DESeq2/inst/biocjobs/deseq2-differential-expression.yaml \
+Rscript -e "Rapp::run('examples/DESeq2/exec/DESeq2.R')" deseq2-differential-expression \
+    --counts examples/DESeq2/test-data/counts.tsv \
+    --coldata examples/DESeq2/test-data/coldata.tsv \
+    --contrast_factor condition --contrast_numerator treated \
+    --contrast_denominator control --alpha 0.05
 ```
 
 Run the job locally (requires DESeq2 + apeglm):

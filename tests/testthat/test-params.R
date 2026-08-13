@@ -92,3 +92,12 @@ test_that("boolean and integer coercion accept common spellings", {
     expect_identical(BiocJobs:::.coerceValue("42", int_opt), 42L)
     expect_error(BiocJobs:::.coerceValue("4.5", int_opt), "expected an integer")
 })
+
+test_that("numeric option bounds are enforced at runtime", {
+    lo <- list(name = "a", type = "float", min = 0, max = 1)
+    expect_identical(BiocJobs:::.coerceValue("0.5", lo), 0.5)
+    expect_error(BiocJobs:::.coerceValue("1.5", lo), "above the maximum")
+    expect_error(BiocJobs:::.coerceValue("-0.1", lo), "below the minimum")
+    hi <- list(name = "n", type = "integer", min = 1)
+    expect_error(BiocJobs:::.coerceValue("0", hi), "below the minimum")
+})

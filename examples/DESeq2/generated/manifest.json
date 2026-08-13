@@ -110,7 +110,8 @@
       },
       "depends": ["apeglm", "ashr"],
       "container": "bioconductor/bioconductor_docker:RELEASE_3_23",
-      "command": ["Rscript", "-e", "BiocJobs::execJob(\"DESeq2\", \"deseq2-differential-expression\")"]
+      "command": ["Rscript", "-e", "BiocJobs::execJob(\"DESeq2\", \"deseq2-differential-expression\")"],
+      "cli_command": ["DESeq2", "deseq2-differential-expression"]
     }
   ]
 }

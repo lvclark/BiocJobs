@@ -6,7 +6,7 @@
   </xrefs>
   <requirements>
     <requirement type="package" version="1.52.0">bioconductor-deseq2</requirement>
-    <requirement type="package" version="0.1.0">bioconductor-biocjobs</requirement>
+    <requirement type="package" version="0.99.0">bioconductor-biocjobs</requirement>
   </requirements>
   <command detect_errors="exit_code"><![CDATA[
 Rscript -e 'BiocJobs::execJob("DESeq2", "deseq2-differential-expression")'

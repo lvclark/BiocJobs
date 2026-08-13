@@ -5,9 +5,17 @@ declare, inside the package itself, the units of work it can perform
 non-interactively — *jobs* — and then automatically generates everything
 workflow infrastructure needs to dispatch those jobs: [GA4GH
 TES](https://github.com/ga4gh/task-execution-schemas) task definitions,
-[Galaxy](https://galaxyproject.org) tool wrappers, and a machine-readable
-manifest for registry building. One declaration, many execution targets, no
+[Galaxy](https://galaxyproject.org) tool wrappers,
+[Nextflow](https://www.nextflow.io) DSL2 modules,
+[WDL](https://openwdl.org) tasks, a machine-readable manifest for registry
+building — and, through [BiocExecute](#a-command-line-for-free-biocexecute),
+a human-facing command line. One declaration, many execution targets, no
 hand-written wrappers.
+
+New here? Start with `vignette("BiocJobs")` for a worked tour you can
+run, or the step-by-step [developer guide](docs/developer-guide.md), which
+walks a maintainer from an empty directory to generated, validated
+wrappers. Contributions are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 A package opts in by adding exactly two kinds of files under `inst/biocjobs/`:
 
@@ -64,7 +72,10 @@ flowchart LR
     B --> L["runJob() — local run<br/>(development, CI)"]
     B --> T["TES task JSON<br/>(GA4GH TES: Funnel, TESK, cloud batch)"]
     B --> G["Galaxy tool XML<br/>(auto-generated wrapper)"]
+    B --> N["Nextflow DSL2 module<br/>(nf pipelines)"]
+    B --> W["WDL task<br/>(Cromwell, Terra, miniwdl)"]
     B --> M["Package job manifest<br/>(registry aggregation)"]
+    B --> C["CLI subcommands<br/>(via BiocExecute/Rapp)"]
 ```
 
 Three principles hold everything together:
@@ -161,8 +172,7 @@ validation notes, not errors.
 
 Inputs, outputs, and options share one `--flag` namespace; `validateJob()`
 enforces uniqueness, name patterns, type/default consistency, script
-existence, and more. `BiocJobs::biocjobsCLI() validate <pkg>` exits non-zero
-on errors — designed to slot into `R CMD check`-adjacent infrastructure such
+existence, and more. the `validate` command exits non-zero on errors — designed to slot into `R CMD check`-adjacent infrastructure such
 as BiocCheck or the Bioconductor Build System.
 
 ## From declaration to execution
@@ -181,6 +191,8 @@ Rscript -e 'BiocJobs::biocjobsCLI()' run /path/to/pkg my-analysis \
 # generate execution artifacts
 Rscript -e 'BiocJobs::biocjobsCLI()' tes      /path/to/pkg my-analysis --out task.json
 Rscript -e 'BiocJobs::biocjobsCLI()' galaxy   /path/to/pkg my-analysis --out tool.xml
+Rscript -e 'BiocJobs::biocjobsCLI()' nextflow /path/to/pkg my-analysis --out module.nf
+Rscript -e 'BiocJobs::biocjobsCLI()' wdl      /path/to/pkg my-analysis --out task.wdl
 Rscript -e 'BiocJobs::biocjobsCLI()' manifest /path/to/pkg --out manifest.json
 ```
 
@@ -212,6 +224,22 @@ IUC convention with the wrapped package version leading
 (`1.52.0+biocjobs1.0.0`), so regenerating after a Bioconductor release
 always produces a new tool version.
 
+**Nextflow target.** Each job becomes a DSL2 module: one `process` with
+file inputs as `path`, options as `val` (annotated with their types and
+spec defaults), outputs emitted under stable names, resource directives
+from the spec, and a `stub:` block so pipelines can be smoke-tested with
+`-stub-run` before touching real data or containers. The DESeq2 module
+passes `nextflow lint` with zero warnings and executes correctly under
+`-stub-run` (Nextflow 26.04).
+
+**WDL target.** Each job becomes a WDL 1.0 task — the version with the
+widest engine support (Cromwell, miniwdl, Terra, dxWDL): `File` inputs,
+typed inputs whose spec defaults become WDL defaults (and whose required
+options become required WDL inputs, enforced by the engine itself),
+outputs collected from the working directory, `runtime` from resources,
+and `parameter_meta` carrying the labels, help, choices, and bounds the
+WDL type system cannot express. The DESeq2 task passes `miniwdl check`.
+
 **Manifest / registry.** `jobManifest()` summarizes every job a package
 declares — full typed interface, resources, container, canonical command —
 as JSON. Because discovery needs no code evaluation, the Bioconductor build
@@ -223,6 +251,37 @@ sheds regenerate automatically at every release. The pipeline is:
 package tarballs ──▶ findJobs()/validateJob() ──▶ per-package manifests
                  ──▶ registry ──▶ {TES templates, Galaxy tools, ...} per release
 ```
+
+## A command line for free (BiocExecute)
+
+The same declarations double as a human-facing CLI through
+[BiocExecute](https://github.com/BiocCodingCollaborations/BiocExecute)
+(the community's EuroBioC 2026 CLI framework built on
+[Rapp](https://cran.r-project.org/package=Rapp)) — its
+`feat/biocjobs-specs` branch compiles every job a package declares into a
+subcommand of one launcher, with `--help` text, option types, and defaults
+all drawn from the YAML:
+
+```
+$ DESeq2 deseq2-differential-expression \
+      --counts counts.tsv --coldata coldata.tsv \
+      --contrast_factor condition --contrast_numerator treated \
+      --contrast_denominator control --alpha 0.05
+...
+significant genes at padj < 0.05: 43
+```
+
+The division of labour is deliberate: **BiocJobs owns the declaration and
+validation**, **BiocExecute/Rapp own the shell ergonomics** (subcommand
+dispatch, `--help`, PATH launchers). At run time the generated subcommand
+hands its parsed values to `BiocJobs::execJob(values = ...)`, so required
+options, choice membership, and file checks are enforced by the same
+specification that drives every workflow target — one contract, identical
+error messages, byte-identical results (verified against the direct
+`Rscript` path on the DESeq2 example). Maintainers who want the CLI run
+`BiocExecute::execCompile()` once and commit the generated
+`exec/<Package>.R`; maintainers who don't, ignore it — the workflow
+targets never depend on it.
 
 ## Worked example: DESeq2
 
@@ -257,6 +316,13 @@ pre-filtering, demonstrating every option type in the spec.
   [`generated/test-data/`](examples/DESeq2/generated/test-data/). Validates
   against Galaxy's official tool XSD
   (`xmllint --schema galaxy.xsd ... : validates`).
+- [`generated/deseq2_differential_expression.nf`](examples/DESeq2/generated/deseq2_differential_expression.nf)
+  — a Nextflow DSL2 module. Passes `nextflow lint` (0 errors, 0 warnings)
+  and executes under `-stub-run`.
+- [`generated/deseq2_differential_expression.wdl`](examples/DESeq2/generated/deseq2_differential_expression.wdl)
+  — a WDL 1.0 task. Passes `miniwdl check`.
+- [`exec/DESeq2.R`](examples/DESeq2/exec/DESeq2.R)
+  — the compiled CLI application (BiocExecute), one subcommand per job.
 - [`generated/manifest.json`](examples/DESeq2/generated/manifest.json)
   — the package's job manifest for registry aggregation.
 
@@ -341,7 +407,7 @@ opting out is the default.
 
 - `BiocJobs` passes `R CMD check` (0 errors, 0 warnings) with a full
   testthat suite covering spec parsing, validation, the runtime contract,
-  the local runner, and both generators, including a shipped `toy` example
+  the local runner, and all four generators, including a shipped `toy` example
   package exercised end-to-end in a child process.
 - The generated Galaxy wrapper validates against Galaxy's official tool XSD;
   the generated TES task validates against the GA4GH TES 1.1 `tesTask`
@@ -350,6 +416,14 @@ opting out is the default.
 - The DESeq2 job was executed end-to-end against DESeq2 1.52.0
   (Bioconductor 3.23) on simulated data, recovering the planted signal; the
   outputs are the staged Galaxy test expectations.
+- The generated Nextflow module passes `nextflow lint` with zero findings
+  and runs under `-stub-run` with correct channel and `emit:` wiring
+  (Nextflow 26.04); the rendered script block is valid bash. The generated
+  WDL task passes `miniwdl check`.
+- The compiled CLI (BiocExecute `feat/biocjobs-specs` branch) runs the real
+  DESeq2 analysis through Rapp with results byte-identical to the direct
+  `Rscript` path, and rejects invalid choice values with the
+  specification's own error message.
 - Failure paths fail loudly with actionable messages: duplicate gene
   identifiers, missing/NA count cells, non-syntactic factor levels (which
   DESeq2 would otherwise silently rename out from under the requested
@@ -365,8 +439,9 @@ option types, one executor per job. On the roadmap:
 - multi-file inputs / Galaxy collections (`multiple: true`)
 - a reserved `threads` option wired to `resources.cpus` and Galaxy's
   `\${GALAXY_SLOTS}`
-- further targets: CWL `CommandLineTool`, WDL tasks, Nextflow modules —
-  each is one generator function away, consuming the same specs
+- further targets: CWL `CommandLineTool` is one generator function away,
+  consuming the same specs (the Nextflow and WDL generators demonstrate
+  the pattern)
 - `validateJob()` integration into BiocCheck, and manifest aggregation in
   the Bioconductor Build System
 - a curated job registry at `bioconductor.org` regenerated per release
@@ -375,13 +450,19 @@ option types, one executor per job. On the roadmap:
 
 | Path | Contents |
 |---|---|
-| [`BiocJobs/`](BiocJobs/) | the framework R package (spec parser/validator, runtime contract, local runner, TES + Galaxy generators, manifest, CLI; full testthat suite) |
-| [`examples/DESeq2/`](examples/DESeq2/) | the worked example: maintainer-authored files under `inst/biocjobs/`, generated artifacts under `generated/`, simulated data under `test-data/` |
+| [`R/`](R/), [`tests/`](tests/) | the framework package: spec parser/validator, runtime contract, local runner, generators (Galaxy, TES, Nextflow, WDL), manifest, scaffolding, CLI; full testthat suite |
+| [`vignettes/BiocJobs.Rmd`](vignettes/BiocJobs.Rmd) | package vignette: a runnable tour of the whole framework |
+| [`docs/developer-guide.md`](docs/developer-guide.md) | step-by-step guide for package maintainers |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | contributor setup, style, and how to add a generator |
+| [`.github/workflows/`](.github/workflows/) | CI: `R CMD check` + `BiocCheck`, plus artifact regeneration and schema validation |
+| [`examples/DESeq2/`](examples/DESeq2/) | the worked example: maintainer-authored files under `inst/biocjobs/`, generated artifacts under `generated/` and `exec/`, simulated data under `test-data/` |
 
 To try it:
 
 ```bash
-R CMD INSTALL BiocJobs
+R CMD INSTALL .
 Rscript -e 'BiocJobs::biocjobsCLI()' validate examples/DESeq2
 Rscript -e 'BiocJobs::biocjobsCLI()' galaxy examples/DESeq2 deseq2-differential-expression
+Rscript -e 'BiocJobs::biocjobsCLI()' nextflow examples/DESeq2 deseq2-differential-expression
+Rscript -e 'BiocJobs::biocjobsCLI()' wdl examples/DESeq2 deseq2-differential-expression
 ```
