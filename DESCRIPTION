@@ -1,6 +1,6 @@
 Package: BiocJobs
 Title: Declare and Dispatch Batch Jobs from Bioconductor Packages
-Version: 0.1.0
+Version: 0.99.0
 Authors@R: c(
     person("Bioconductor", "Core Team",
            email = "maintainer@bioconductor.org",
@@ -12,10 +12,14 @@ Description: A lightweight framework for Bioconductor package developers to
     inst/biocjobs/. BiocJobs discovers and validates these specifications, runs
     jobs locally, and automatically generates execution artifacts for
     workflow infrastructure: GA4GH Task Execution Service (TES) task
-    definitions and Galaxy tool wrappers, with more targets to follow.
+    definitions, Galaxy tool wrappers, Nextflow DSL2 modules and Workflow
+    Description Language (WDL) tasks, plus a machine-readable manifest for
+    building a cross-package job registry.
 License: Artistic-2.0
 Encoding: UTF-8
-Depends: R (>= 4.4.0)
+URL: https://github.com/Bioconductor/BiocJobs
+BugReports: https://github.com/Bioconductor/BiocJobs/issues
+Depends: R (>= 4.6.0)
 Imports:
     yaml,
     jsonlite,
@@ -23,8 +27,12 @@ Imports:
     utils
 Suggests:
     testthat (>= 3.0.0),
-    BiocManager
-biocViews: Infrastructure, Software
+    BiocManager,
+    knitr,
+    rmarkdown,
+    BiocStyle
+biocViews: Infrastructure, Software, ThirdPartyClient, DataImport
+VignetteBuilder: knitr
 Roxygen: list(markdown = TRUE)
 Config/testthat/edition: 3
 Config/roxygen2/version: 8.1.0

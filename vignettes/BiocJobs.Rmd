@@ -1,0 +1,669 @@
+---
+title: "BiocJobs: declaring dispatchable jobs inside a Bioconductor package"
+author:
+- name: Bioconductor Core Team
+  email: maintainer@bioconductor.org
+package: BiocJobs
+abstract: >
+  BiocJobs lets a package declare, inside the package itself, the units of
+  work it can perform non-interactively — *jobs* — as a YAML specification
+  plus a plain R script. From that single declaration BiocJobs runs the job
+  locally and generates the artifacts execution infrastructure needs: Galaxy
+  tool wrappers, GA4GH TES task templates, Nextflow DSL2 modules, WDL tasks,
+  and a machine-readable manifest for registry building. This vignette walks
+  a package maintainer through the model end to end, using a toy package
+  shipped with BiocJobs so every step here is real and reproducible.
+output:
+  BiocStyle::html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+vignette: >
+  %\VignetteIndexEntry{BiocJobs}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+    collapse = TRUE,
+    comment = "#>",
+    crop = NULL
+)
+```
+
+# Why declare jobs?
+
+A large fraction of what Bioconductor packages do is *batch-shaped*: a
+well-defined analysis with file inputs, file outputs, and a handful of
+parameters. Today every workflow system that wants to offer such an analysis
+— Galaxy, Nextflow, CWL/WDL engines, cloud batch services — needs a
+**hand-written wrapper**, maintained by someone who is usually not the
+package author, drifting out of sync with the package at every release.
+Excellent hand-written wrappers exist for a few popular packages; the long
+tail of Bioconductor will never get that treatment.
+
+BiocJobs inverts the ownership. The **package author** — the person who
+knows which entry points make sense non-interactively, what the inputs mean,
+and which parameters matter — declares the job once, next to the code,
+versioned with the code, tested with the code. Wrappers become build
+artifacts rather than maintained code.
+
+A package opts in by adding exactly two kinds of files under
+`inst/biocjobs/`:
+
+```
+mypackage/
+└── inst/
+    └── biocjobs/
+        ├── my-analysis.yaml      # inputs, outputs, options
+        └── scripts/
+            └── my-analysis.R    # plain R, pure analysis
+```
+
+Nothing else about the package changes: no new imports, no code changes, no
+build-system requirements. Packages whose value is interactive exploration
+simply do not add the directory — opting out is the default.
+
+Three principles hold the framework together:
+
+1. **The YAML is the single source of truth.** It declares inputs, outputs,
+   typed configuration options, resource needs and citations. Build
+   infrastructure can enumerate and validate every job in a package tarball
+   *without installing or executing anything*.
+2. **One runtime contract.** Every input, output and option is passed as a
+   `--name value` command-line pair, parsed by `jobParams()` against the
+   declaration.
+3. **One canonical command.** Every execution target launches the same
+   self-locating invocation,
+   `Rscript -e 'BiocJobs::execJob("<pkg>", "<job>")' --flag value`, so
+   generated artifacts contain no absolute paths and never go stale against
+   the installed package version.
+
+This vignette uses `toy`, a miniature package shipped inside BiocJobs purely
+to demonstrate and test the framework. It declares one job,
+`toy-normalize`, that reads a numeric matrix and writes a normalized one.
+Everything shown below actually runs while this vignette is built.
+
+```{r toy-package}
+library(BiocJobs)
+
+toy <- system.file("examples", "toy", package = "BiocJobs")
+list.files(toy, recursive = TRUE)
+```
+
+# The anatomy of a job
+
+## The specification
+
+The specification declares the job's *interface*. It is machine-readable
+without evaluating any R code, which is what lets infrastructure enumerate
+and validate jobs in a tarball safely.
+
+```{r toy-spec, echo = FALSE, comment = ""}
+spec_path <- file.path(toy, "inst", "biocjobs", "toy-normalize.yaml")
+cat(readLines(spec_path), sep = "\n")
+```
+
+`readJob()` parses one specification, `findJobs()` discovers all of them in
+a package. Both accept a package source directory, an installed package
+directory, or the name of an installed package.
+
+```{r read-job}
+jobs <- findJobs(toy)
+names(jobs)
+
+job <- jobs[["toy-normalize"]]
+job
+```
+
+A `BiocJob` is a plain list, so every declared field is directly
+inspectable:
+
+```{r inspect-job}
+job$version
+vapply(job$options, `[[`, "", "name")
+str(job$options[[1]])
+unlist(job$resources)
+```
+
+The `format` field of an input or output comes from a controlled vocabulary
+that maps each format to a Galaxy datatype and a file extension:
+
+```{r formats}
+head(jobFormats(), 10)
+nrow(jobFormats())
+```
+
+Unknown formats are not an error — they pass through verbatim to the
+generators — but validation flags them as notes, so typos get caught.
+
+## The script
+
+The script is plain R. Its first line hands control of the interface to the
+specification; the rest is analysis code reading `params$<name>`.
+
+```{r toy-script, echo = FALSE, comment = ""}
+cat(readLines(jobScript(job)), sep = "\n")
+```
+
+Note what is *absent*: no argument parsing, no type checking, no usage
+message, no defaults. `jobParams()` supplies all of it from the YAML. The
+rules that matter when you write your own:
+
+- **First line is `jobParams()`.** Do not read `commandArgs()` yourself, and
+  never re-default a value downstream — the spec's defaults are what
+  generated user interfaces already showed the user.
+- **Fail loudly, early and specifically.** Non-zero exit is how every engine
+  detects failure.
+- **Never prompt** and never open an interactive device.
+- **Write every declared output**, exactly to `params$<name>`.
+- **Log to `stderr()` with `message()`** — engines capture it as the job log.
+
+# The runtime contract
+
+Every input, output and option becomes one `--name value` command-line pair,
+and every execution environment launches the same command. `jobCommand()`
+builds it; it is the single builder used by the local runner and by the
+generators, so all execution paths stay in lockstep.
+
+```{r job-command}
+jobCommand(job, params = list(
+    matrix = "counts.tsv",
+    method = "zscore",
+    normalized = "normalized.tsv"
+))
+```
+
+`execJob()` — the `-e` expression above — resolves the job's script inside
+the *installed* host package and sources it. That indirection is why
+generated artifacts carry no filesystem paths: the same JSON or XML works on
+any machine where the package is installed, and always runs the version of
+the script that is installed there.
+
+Inside the script, `jobParams()` parses those arguments *against the
+declaration*: it coerces types (booleans arrive as logicals, integers as
+integers, floats as doubles), applies defaults, validates choice membership
+and numeric bounds, checks that required inputs exist on disk, creates
+parent directories of output paths, and rejects unknown flags. Inputs,
+outputs and options share one flag namespace.
+
+# Running a job locally
+
+`runJob()` executes a job in a fresh `Rscript` process, straight from a
+package source checkout — the host package does not need to be installed,
+because the specification path is handed to the child process through the
+`BIOCJOBS_SPEC` environment variable. The contract is identical to
+production.
+
+First, some input data, written — like everything else in this vignette —
+into a temporary directory:
+
+```{r make-input}
+wd <- file.path(tempdir(), "biocjobs-vignette")
+dir.create(wd, showWarnings = FALSE)
+
+set.seed(1)
+counts <- matrix(
+    rpois(12, 100), nrow = 4,
+    dimnames = list(paste0("gene", 1:4), paste0("sample", 1:3))
+)
+counts_file <- file.path(wd, "counts.tsv")
+write.table(data.frame(id = rownames(counts), counts), counts_file,
+            sep = "\t", quote = FALSE, row.names = FALSE)
+
+read.delim(counts_file)
+```
+
+Now run the job. Parameters are given by their declared names; anything
+omitted falls back to the default in the specification (here, `center` and
+`pseudocount`).
+
+```{r run-job}
+result <- runJob(
+    job,
+    params = list(matrix = counts_file,
+                  normalized = "normalized.tsv",
+                  method = "log2"),
+    workdir = wd,
+    rscript = file.path(R.home("bin"), "Rscript")
+)
+
+result$status
+result$outputs
+```
+
+`runJob()` returns the exit status, the working directory, and the absolute
+path of every declared output; it warns when a declared output was not
+produced (engines treat that as job failure). The result:
+
+```{r run-output}
+read.delim(result$outputs[["normalized"]])
+```
+
+Test the failure paths too — a missing required flag, an out-of-range value,
+a malformed input file. Each should produce one clear error line, because
+that line is what a Galaxy or Nextflow user will see in their job log.
+
+# Validating specifications
+
+`validateJob()` checks a specification for structural problems and returns a
+list of issues; an empty list means the specification is valid. **Errors**
+make the job unusable, **notes** are advisory.
+
+```{r validate-ok}
+issues <- validateJob(job)
+length(issues)          # 0: no errors, no notes
+```
+
+`readJob()` validates by default and refuses to return an invalid
+specification, so most of the time errors surface as soon as you read a
+spec. To inspect a broken specification instead of erroring on it, read it
+with `validate = FALSE` and validate explicitly. The specification below has
+two real errors (a default outside the declared choices, and a name reused
+across sections) plus a handful of notes:
+
+```{r validate-broken}
+broken_path <- file.path(wd, "broken-job.yaml")
+writeLines(c(
+    'biocjobs: "1.0"',
+    'name: broken-job',
+    'package: toy',
+    'title: A specification with mistakes',
+    'script: scripts/toy-normalize.R',
+    'inputs:',
+    '  - name: matrix',
+    '    format: tabular',
+    'outputs:',
+    '  - name: matrix',
+    '    format: tsv',
+    'options:',
+    '  - name: method',
+    '    type: choice',
+    '    choices: [log2, zscore]',
+    '    default: sqrt'
+), broken_path)
+
+## the spec's script: path is resolved relative to the YAML, so point it at
+## a real script for this demonstration
+invisible(file.copy(file.path(toy, "inst", "biocjobs", "scripts"), wd,
+                    recursive = TRUE))
+
+issues <- validateJob(readJob(broken_path, validate = FALSE))
+for (issue in issues)
+    cat(sprintf("%-6s %s\n", issue$severity, issue$message))
+```
+
+From a shell — the form to wire into continuous integration next to
+`R CMD check` — the same check is one command, and it exits non-zero when
+any specification has errors:
+
+```sh
+Rscript -e 'BiocJobs::biocjobsCLI()' validate /path/to/mypackage
+```
+
+Every other operation in this vignette has a shell equivalent too, so build
+infrastructure needs nothing but `Rscript`:
+
+```sh
+Rscript -e 'BiocJobs::biocjobsCLI()' list     /path/to/pkg
+Rscript -e 'BiocJobs::biocjobsCLI()' run <pkg> my-analysis --counts c.tsv
+Rscript -e 'BiocJobs::biocjobsCLI()' galaxy   <pkg> my-analysis --out tool.xml
+Rscript -e 'BiocJobs::biocjobsCLI()' tes      <pkg> my-analysis --out task.json
+Rscript -e 'BiocJobs::biocjobsCLI()' nextflow <pkg> my-analysis --out module.nf
+Rscript -e 'BiocJobs::biocjobsCLI()' wdl      <pkg> my-analysis --out task.wdl
+Rscript -e 'BiocJobs::biocjobsCLI()' manifest /path/to/pkg --out manifest.json
+```
+
+(`biocjobsCLI()` exits the R session with the command's status when running
+non-interactively, which is exactly what a CI step wants — and the reason
+the chunks in this vignette call the R functions directly instead.)
+
+# The generators
+
+Each generator turns one declaration into one deterministic artifact.
+Commit them or regenerate them at release time, but never hand-edit them:
+they carry a generated-by header for a reason.
+
+## Galaxy
+
+`galaxyTool()` returns an `xml2` document; `writeGalaxyTool()` writes it and,
+when given the job, stages the files referenced by the spec's `tests:` into
+a `test-data/` directory beside the XML — the layout `planemo test` expects.
+
+```{r galaxy}
+xml_file <- file.path(wd, "toy_normalize.xml")
+writeGalaxyTool(galaxyTool(job), xml_file, job = job)
+
+length(readLines(xml_file))                       # the whole tool
+cat(head(readLines(xml_file), 28), sep = "\n")    # its first 28 lines
+```
+
+The generated tool is complete: typed parameters (`data`, `select`,
+`boolean`, `integer`/`float` with bounds, `text` with sanitizers and
+validators), outputs with Galaxy datatypes and labels, `<tests>` from the
+specification's test cases, DOI citations, a `bioconductor` xref, and
+bioconda requirements (`bioconductor-<pkg>` plus `bioconductor-biocjobs`)
+that Galaxy resolves to conda environments or mulled BioContainers images.
+
+The tool version follows the IUC convention with the wrapped package version
+leading, so regenerating after a Bioconductor release always yields a new
+tool version:
+
+```{r galaxy-version}
+xml2::xml_attr(xml2::xml_root(galaxyTool(job)), "version")
+```
+
+One subtlety worth knowing: Galaxy's default text sanitizer strips
+characters such as `~`, which would silently corrupt a design formula like
+`~ condition` into `condition`. Declaring `allow_chars: ["~"]` on a string
+option makes the generated wrapper extend the sanitizer.
+
+## GA4GH TES
+
+`tesTask()` builds a [GA4GH TES][tes]
+v1.1 task, ready to `POST` to a `/tasks` endpoint (Funnel, TESK, cloud
+implementations). Declared inputs and outputs become `tesInput`/`tesOutput`
+entries staged at fixed container paths, `resources:` becomes
+`tesResources`, and the final executor runs the canonical command inside a
+Bioconductor container.
+
+```{r tes}
+task <- tesTask(
+    job,
+    inputs  = c(matrix = "s3://bucket/counts.tsv"),
+    outputs = c(normalized = "s3://bucket/normalized.tsv")
+)
+names(task)
+
+json_file <- file.path(wd, "toy-normalize.tes.json")
+writeTesTask(task, json_file)
+cat(head(readLines(json_file), 25), sep = "\n")
+```
+
+Because the generic `bioconductor/bioconductor_docker` image ships no
+analysis packages, a *bootstrap* executor is prepended that installs the
+host package, BiocJobs and any declared `depends` with `BiocManager`, so the
+task is genuinely executable out of the box. Point `container:` (or the
+`image` argument) at a purpose-built image and the bootstrap disappears:
+
+```{r tes-executors}
+length(task$executors)
+unlist(task$executors[[length(task$executors)]]$command)
+
+img <- "quay.io/biocontainers/bioconductor-toy:1.2.3"
+length(tesTask(job, image = img)$executors)
+```
+
+Values that are not known at generation time are emitted as
+`{{...}}` placeholders and the task is tagged `biocjobs.template`, so the
+JSON acts as a *submission template*: fill in the URLs (and any unset
+required options) and submit it.
+
+```{r tes-template}
+template <- tesTask(job)
+template$inputs[[1]]$url
+unlist(template$tags)
+```
+
+If an unfilled placeholder ever reaches a running job, `jobParams()` rejects
+it by name rather than letting a literal `{{...}}` leak into the analysis.
+
+## Nextflow
+
+`nextflowModule()` returns a DSL2 module as text, or writes it when given a
+`file`: one `process`, file inputs as `path`, options as `val` (annotated
+with their types and the specification's defaults), outputs emitted under
+stable names, resource directives, and a `stub:` block so pipelines can be
+smoke-tested with `-stub-run` before touching real data or containers.
+
+The whole artifact is short enough to show in full:
+
+```{r nextflow}
+module <- nextflowModule(job)
+cat(strsplit(module, "\n")[[1]], sep = "\n")
+```
+
+Two things to know when calling the module: process inputs are
+**positional** (Nextflow has no named process-input syntax), so the calling
+workflow passes the file inputs and then every option in the order they
+appear in the specification; and each option is a required `val` with no
+in-module default, its spec default shown in a comment. Reordering options
+in a future spec version therefore changes the call signature — bump the
+job's `version:` when you do.
+
+```
+include { TOY_NORMALIZE } from './modules/toy_normalize.nf'
+
+workflow {
+    TOY_NORMALIZE(channel.fromPath(params.matrix), 'log2', false, 1.0)
+    TOY_NORMALIZE.out.normalized.view()
+}
+```
+
+## WDL
+
+`wdlTask()` generates a [WDL](https://openwdl.org) 1.0 task — the version
+with the widest engine support (Cromwell, miniwdl, Terra, dxWDL). Spec
+defaults become WDL defaults, so options *without* a default become required
+WDL inputs enforced by the engine itself; `parameter_meta` carries the
+labels, help, choices and bounds that the WDL type system cannot express.
+
+```{r wdl}
+wdl <- wdlTask(job)
+cat(head(strsplit(wdl, "\n")[[1]], 27), sep = "\n")
+```
+
+The rest of the task carries the `runtime` block built from `resources:`,
+the `parameter_meta` entries, and a `meta` block naming the package, job and
+job version:
+
+```{r wdl-meta}
+cat(tail(strsplit(wdl, "\n")[[1]], 22), sep = "\n")
+```
+
+```
+import "toy_normalize.wdl" as jobs
+
+workflow normalize {
+    call jobs.toy_normalize { input: matrix = matrix_file, method = "log2" }
+}
+```
+
+# The manifest and the registry story
+
+`jobManifest()` summarizes every job a package declares — the full typed
+interface, resources, container, and canonical commands — as one JSON
+document per package.
+
+```{r manifest}
+manifest <- jobManifest(toy)
+manifest$package
+manifest$version
+lengths(manifest$jobs[[1]][c("inputs", "outputs", "options")])
+manifest$jobs[[1]]$command
+```
+
+```{r manifest-json}
+manifest_file <- file.path(wd, "manifest.json")
+invisible(jobManifest(toy, file = manifest_file))
+cat(head(readLines(manifest_file), 22), sep = "\n")
+```
+
+The manifest is the **aggregation unit**. Because discovery needs no code
+evaluation, build infrastructure can collect manifests across every package
+in a release — straight from tarballs — into a Bioconductor-wide registry of
+dispatchable jobs, from which TES templates and Galaxy tool sheds regenerate
+automatically at every release:
+
+```
+package tarballs ──▶ findJobs()/validateJob() ──▶ per-package manifests
+   ──▶ registry ──▶ {TES, Galaxy, Nextflow, WDL} per release
+```
+
+# Adding a job to your own package
+
+`jobSkeleton()` scaffolds the two files in a package source tree. Both are
+working templates: the YAML demonstrates every specification field with
+comments, and the script demonstrates the contract. Existing files are never
+overwritten unless you pass `overwrite = TRUE`.
+
+```{r skeleton}
+pkg_dir <- file.path(tempdir(), "mypackage")
+dir.create(pkg_dir, showWarnings = FALSE)
+writeLines(c("Package: mypackage", "Version: 0.0.1"),
+           file.path(pkg_dir, "DESCRIPTION"))
+
+jobSkeleton("my-analysis", pkg = pkg_dir)
+list.files(pkg_dir, recursive = TRUE)
+```
+
+```{r skeleton-script, comment = ""}
+cat(readLines(file.path(pkg_dir, "inst", "biocjobs", "scripts",
+                        "my-analysis.R")), sep = "\n")
+```
+
+From there the loop is: edit the YAML, write the analysis, `runJob()` it on
+small committed test data, `validateJob()` it, declare `tests:` for the
+Galaxy wrapper, and regenerate the artifacts. The
+[developer guide][guide]
+documents every specification field, the release checklist, and a
+troubleshooting table.
+
+# A command line for free (optional)
+
+The same declarations double as a human-facing command line through
+[BiocExecute](https://github.com/BiocCodingCollaborations/BiocExecute), a
+community CLI framework built on
+[Rapp](https://cran.r-project.org/package=Rapp). It compiles every job a
+package declares into a subcommand of one launcher, with `--help` text,
+option types and defaults all drawn from the YAML — **you write nothing
+extra**.
+
+The chunks in this section are shown but not evaluated: BiocExecute is not a
+Bioconductor package (it lives on GitHub, and the BiocJobs integration is on
+its `feat/biocjobs-specs` branch), so it cannot be a dependency of this
+vignette.
+
+```{r biocexecute-compile, eval = FALSE}
+## in your package source dir: reads inst/biocjobs/,
+## writes exec/<Package>.R
+BiocExecute::execCompile()
+
+## once, after the package is installed: puts the launcher on the user's PATH
+BiocExecute::execInstall("mypackage")
+```
+
+```sh
+$ mypackage --help
+Usage: mypackage <COMMAND>
+Commands:
+  my-analysis  One-line title from the specification
+
+$ mypackage my-analysis --input1 data.tsv --method fast
+```
+
+The division of labour is deliberate: **BiocJobs owns the declaration and
+its validation**, **BiocExecute/Rapp own the shell ergonomics** (subcommand
+dispatch, `--help`, PATH launchers). At run time the generated subcommand
+hands its parsed values straight to `execJob()`:
+
+```{r biocexecute-values, eval = FALSE}
+BiocJobs::execJob("mypackage", "my-analysis",
+                  values = list(input1 = "data.tsv", method = "fast"))
+```
+
+so required options, choice membership and file checks are enforced by the
+same specification that drives every workflow target — one contract,
+identical error messages. A job name becomes a subcommand by mapping `-` to
+`_` internally and back for display; `cliJobName()` reports the token, and
+`validateJob()` emits a note for the rare name that cannot survive the round
+trip.
+
+```{r cli-name}
+cliJobName(job)
+```
+
+Maintainers who want the CLI run `execCompile()` once and commit the
+generated `exec/<Package>.R`; maintainers who do not, ignore it — the
+workflow targets never depend on it.
+
+# Containers and dependencies
+
+At run time a job needs three things in its environment: R, the host package
+(plus anything listed in `depends:`), and BiocJobs — whose only runtime role
+is `jobParams()`, and which brings just **yaml**, **jsonlite** and **xml2**
+along. The targets get there differently:
+
+- **TES, Nextflow, WDL** default to
+  `bioconductor/bioconductor_docker:<current release>`, with the TES
+  bootstrap installing what is missing at task start. For production, point
+  `container:` at a purpose-built image — for Bioconductor packages the
+  auto-built `quay.io/biocontainers/bioconductor-<pkg>` images are a natural
+  base — and the bootstrap disappears.
+- **Galaxy** declares requirements as bioconda packages. Bioconda
+  auto-packages every Bioconductor package as `bioconductor-<name>`, so
+  Galaxy's mulled-container machinery resolves them with no manual packaging
+  work.
+
+```{r container}
+job$container            # NULL: the job accepts the default image
+manifest$jobs[[1]]$container
+```
+
+# Scope: when *not* to declare a job
+
+Declare a job when the analysis is batch-shaped: inputs are files (or can
+reasonably be serialized to files), outputs are files, every decision the
+user makes can be expressed as a typed option up front, and the code path
+runs unattended from start to finish. Differential expression, normalization,
+peak calling, amplicon denoising, quantification import, batch correction and
+annotation all fit.
+
+Do **not** declare jobs for work whose value is interactive: visualization
+browsers, iterative model tuning with a human in the loop, anything needing a
+live R session mid-analysis. If some computation *inside* an interactive flow
+is batch-shaped — fitting a model, scoring a matrix — consider exposing just
+that.
+
+One package can declare several jobs (one YAML plus script pair each, sharing
+one name namespace), and a job need not expose everything a function can do:
+expose the parameters that matter for batch use, hard-code sensible choices
+for the rest, and keep the full flexibility in your R API.
+
+Version 1.0 of the specification deliberately keeps the model small:
+single-file inputs and outputs, five option types, one executor per job.
+Multi-file inputs and Galaxy collections, a reserved `threads` option wired
+to `resources.cpus`, and further targets such as a CWL `CommandLineTool` are
+on the roadmap — the Nextflow and WDL generators demonstrate how little a new
+target costs, because they consume the same specifications.
+
+# Where to go next
+
+- The
+  [developer guide][guide]
+  walks a maintainer from an empty directory to generated, validated
+  wrappers, with the complete field reference, a release checklist, a
+  troubleshooting table and an FAQ.
+- The **DESeq2 worked example** in the BiocJobs repository
+  ([`examples/DESeq2/`][deseq2])
+  is the realistic counterpart to the toy job used here: 2 inputs, 3 outputs
+  and 9 typed options exercising every option type, a defensively written
+  analysis script, simulated test data, and all the generated artifacts under
+  `generated/` — a Galaxy tool validated against Galaxy's official XSD, a TES
+  task validated against the GA4GH TES 1.1 schema, a Nextflow module that
+  passes `nextflow lint` and runs under `-stub-run`, and a WDL task that
+  passes `miniwdl check`. It is not installed with the package (and needs
+  DESeq2), which is why this vignette uses the toy job instead.
+- `help(package = "BiocJobs")` for the reference documentation of all
+  exported functions.
+
+# Session information
+
+```{r session-info}
+sessionInfo()
+```
+
+[guide]: https://github.com/Bioconductor/BiocJobs/blob/devel/docs/developer-guide.md
+[deseq2]: https://github.com/Bioconductor/BiocJobs/tree/devel/examples/DESeq2
+[tes]: https://github.com/ga4gh/task-execution-schemas
