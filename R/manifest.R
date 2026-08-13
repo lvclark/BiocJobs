@@ -16,6 +16,25 @@
 #' @param file Optional path; when supplied the manifest is written as JSON.
 #' @return A list with elements `package`, `version`, `biocjobs` (spec
 #'   version) and `jobs`; class `"BiocJobManifest"`.
+#' @examples
+#' toy <- system.file("examples", "toy", package = "BiocJobs")
+#' manifest <- jobManifest(toy)
+#'
+#' ## Registry-facing identity: package, version, and the declared jobs.
+#' manifest$package
+#' manifest$version
+#' vapply(manifest$jobs, `[[`, "", "name")
+#'
+#' ## Each entry carries the full typed interface plus the canonical
+#' ## command a dispatcher would run.
+#' job <- manifest$jobs[[1]]
+#' str(job$options[[1]])
+#' cat(paste(unlist(job$command), collapse = " "), "\n")
+#'
+#' ## Written as JSON, per-package manifests concatenate into a registry.
+#' path <- file.path(tempdir(), "toy-manifest.json")
+#' invisible(jobManifest(toy, file = path))
+#' cat(head(readLines(path), 8), sep = "\n")
 #' @export
 jobManifest <- function(pkg = ".", file = NULL) {
     jobs <- findJobs(pkg)
@@ -64,7 +83,8 @@ jobManifest <- function(pkg = ".", file = NULL) {
                 resources = job$resources,
                 depends = as.character(job$depends %||% character()),
                 container = job$container %||% .defaultContainer(),
-                command = jobCommand(job)
+                command = jobCommand(job),
+                cli_command = jobCommand(job, style = "cli")
             )
         })
     )

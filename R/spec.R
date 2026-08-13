@@ -1,7 +1,8 @@
 ## Job specification: reading and validation.
 ##
-## A job specification is a YAML file shipped at inst/biocjobs/<name>.yaml in the
-## host package, next to an R script (conventionally inst/biocjobs/scripts/).
+## A job specification is a YAML file shipped at inst/biocjobs/<name>.yaml
+## in the host package, next to an R script (conventionally under
+## inst/biocjobs/scripts/).
 ## BiocJobs never evaluates host package code to discover jobs: the YAML is
 ## the single machine-readable source of truth, so build infrastructure can
 ## enumerate jobs from a package tarball without installing or loading it.
@@ -16,10 +17,19 @@
 #' @param validate Validate the specification after reading (default `TRUE`).
 #' @return A `BiocJob` object (a validated list).
 #' @examples
-#' yaml <- system.file("examples", "toy", "inst", "biocjobs", "toy-normalize.yaml",
-#'                     package = "BiocJobs")
+#' ## BiocJobs ships a miniature example package; its declaration is a
+#' ## normal inst/biocjobs/<job>.yaml file.
+#' toy <- system.file("examples", "toy", package = "BiocJobs")
+#' yaml <- file.path(toy, "inst", "biocjobs", "toy-normalize.yaml")
+#'
 #' job <- readJob(yaml)
 #' job
+#'
+#' ## The specification is a plain list: everything generators and the
+#' ## runtime contract need is reachable by name.
+#' job$version
+#' vapply(job$options, `[[`, "", "name")
+#' job$options[[1]]$choices
 #' @export
 readJob <- function(path, validate = TRUE) {
     if (!file.exists(path))
@@ -33,6 +43,12 @@ readJob <- function(path, validate = TRUE) {
                     "version", "script", "license", "container"))
         if (!is.null(spec[[field]]))
             spec[[field]] <- as.character(spec[[field]])[1L]
+    ## title and tagline are single-line everywhere they are used (Galaxy
+    ## tool name, CLI title, WDL/NF headers); a folded/literal YAML scalar
+    ## can carry newlines, so collapse them.
+    for (field in c("title", "tagline"))
+        if (!is.null(spec[[field]]))
+            spec[[field]] <- trimws(gsub("[[:space:]]+", " ", spec[[field]]))
     ## Normalize sections so downstream code can rely on lists of mappings.
     for (section in c("inputs", "outputs", "options", "citations", "tests"))
         if (is.null(spec[[section]]))
@@ -46,9 +62,9 @@ readJob <- function(path, validate = TRUE) {
         issues <- validateJob(spec)
         errors <- issues[vapply(issues, `[[`, "", "severity") == "error"]
         if (length(errors)) {
+            detail <- vapply(errors, `[[`, "", "message")
             stop("invalid job specification '", path, "':\n",
-                 paste0("  - ", vapply(errors, `[[`, "", "message"),
-                        collapse = "\n"))
+                 paste0("  - ", detail, collapse = "\n"))
         }
     }
     spec
@@ -56,13 +72,24 @@ readJob <- function(path, validate = TRUE) {
 
 #' Discover job specifications in a package
 #'
-#' Looks for `inst/biocjobs/*.yaml` in a package source directory, or `biocjobs/*.yaml`
-#' in an installed package.
+#' Looks for `inst/biocjobs/*.yaml` in a package source directory, or
+#' `biocjobs/*.yaml` in an installed package.
 #'
 #' @param pkg Path to a package source directory, path to an installed package
 #'   directory, or the name of an installed package.
 #' @param validate Validate each specification (default `TRUE`).
 #' @return A named list of `BiocJob` objects.
+#' @examples
+#' ## Discovery reads YAML only: no host package code is loaded or run, so
+#' ## this works on an uninstalled source tree or an unpacked tarball.
+#' toy <- system.file("examples", "toy", package = "BiocJobs")
+#' jobs <- findJobs(toy)
+#' names(jobs)
+#'
+#' jobs[["toy-normalize"]]
+#'
+#' ## Packages that declare no jobs simply return an empty list.
+#' length(findJobs(tempdir()))
 #' @export
 findJobs <- function(pkg = ".", validate = TRUE) {
     dir <- .jobsDir(pkg)
@@ -106,6 +133,15 @@ findJobs <- function(pkg = ".", validate = TRUE) {
 #'
 #' @param job A `BiocJob` object.
 #' @return Absolute path to the job's R script.
+#' @examples
+#' toy <- system.file("examples", "toy", package = "BiocJobs")
+#' job <- readJob(file.path(toy, "inst", "biocjobs", "toy-normalize.yaml"))
+#'
+#' script <- jobScript(job)
+#' basename(script)
+#'
+#' ## The script is plain R: one jobParams() call, then analysis code.
+#' cat(head(readLines(script), 6), sep = "\n")
 #' @export
 jobScript <- function(job) {
     stopifnot(inherits(job, "BiocJob"))
@@ -119,6 +155,25 @@ jobScript <- function(job) {
     list(severity = severity, message = message)
 }
 
+## Issue collector.  validateJob() runs many independent checks and each may
+## contribute zero or more issues, so the accumulator has to outlive the
+## expression that appends to it.  A small environment carries it explicitly.
+.newIssues <- function() {
+    collector <- new.env(parent = emptyenv())
+    assign("issues", list(), envir = collector)
+    collector
+}
+
+.addIssue <- function(collector, severity, ...) {
+    assign("issues",
+           c(get("issues", envir = collector),
+             list(.issue(severity, paste0(...)))),
+           envir = collector)
+    invisible(NULL)
+}
+
+.collectedIssues <- function(collector) get("issues", envir = collector)
+
 #' Validate a job specification
 #'
 #' Checks a specification for structural problems.  Errors make the job
@@ -128,14 +183,31 @@ jobScript <- function(job) {
 #' @param job A `BiocJob` object, or path to a job YAML file.
 #' @return A list of issues, each a list with elements `severity` (`"error"`
 #'   or `"note"`) and `message`.  Empty when the specification is valid.
+#' @examples
+#' toy <- system.file("examples", "toy", package = "BiocJobs")
+#' yaml <- file.path(toy, "inst", "biocjobs", "toy-normalize.yaml")
+#'
+#' ## A clean specification reports nothing.
+#' validateJob(yaml)
+#'
+#' ## Introduce two problems a maintainer might actually make: an option
+#' ## whose flag collides with an input, and a default outside its choices.
+#' job <- readJob(yaml)
+#' job$options[[1]]$name <- "matrix"
+#' job$options[[1]]$default <- "sqrt"
+#' issues <- validateJob(job)
+#' for (i in issues)
+#'     cat(i$severity, ": ", i$message, "\n", sep = "")
+#'
+#' ## Errors make a job unusable; notes are advisory.
+#' table(vapply(issues, `[[`, "", "severity"))
 #' @export
 validateJob <- function(job) {
     if (is.character(job))
         job <- readJob(job, validate = FALSE)
     stopifnot(inherits(job, "BiocJob"))
-    issues <- list()
-    add <- function(severity, ...)
-        issues[[length(issues) + 1L]] <<- .issue(severity, paste0(...))
+    collector <- .newIssues()
+    add <- function(severity, ...) .addIssue(collector, severity, ...)
 
     ## ---- top level ----
     if (is.null(job$biocjobs))
@@ -151,6 +223,14 @@ validateJob <- function(job) {
         !grepl("^[a-z0-9][a-z0-9._-]*$", as.character(job$name)))
         add("error", "'name' must match ^[a-z0-9][a-z0-9._-]*$ (got '",
             job$name, "')")
+    ## CLI middle layer: a BiocExecute/Rapp subcommand is the job name with
+    ## '-' mapped to '_', which must then be a syntactically valid R name.
+    if (!is.null(job$name)) {
+        branch <- gsub("-", "_", as.character(job$name), fixed = TRUE)
+        if (nzchar(branch) && !identical(make.names(branch), branch))
+            add("note", "'name' cannot be exposed as a CLI subcommand by ",
+                "BiocExecute/Rapp (\"", branch, "\" is not a valid R name)")
+    }
     if (is.null(job$description))
         add("note", "no 'description'; generators will fall back to 'title'")
     if (is.null(job$version))
@@ -281,7 +361,7 @@ validateJob <- function(job) {
         }
     }
 
-    issues
+    .collectedIssues(collector)
 }
 
 #' @export
