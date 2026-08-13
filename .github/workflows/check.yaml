@@ -1,0 +1,58 @@
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Bioconductor devel image ships node24 only; JavaScript actions
+  # still declare the node20 runtime.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  check:
+    name: R CMD check + BiocCheck (Bioconductor devel)
+    runs-on: ubuntu-latest
+    container: bioconductor/bioconductor_docker:devel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          options(repos = BiocManager::repositories())
+          BiocManager::install(c("rcmdcheck", "BiocCheck", "remotes"),
+                               ask = FALSE, update = FALSE)
+          remotes::install_deps(dependencies = TRUE)
+        shell: Rscript {0}
+
+      - name: R CMD check
+        run: |
+          rcmdcheck::rcmdcheck(
+              ".",
+              args = c("--no-manual", "--timings"),
+              error_on = "warning",
+              check_dir = "check")
+        shell: Rscript {0}
+
+      - name: BiocCheck
+        run: BiocCheck::BiocCheck(getwd(), `new-package` = TRUE)
+        shell: Rscript {0}
+
+      - name: Upload check results
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: check-results
+          path: check
+          retention-days: 7

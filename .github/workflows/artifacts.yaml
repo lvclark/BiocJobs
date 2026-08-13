@@ -1,0 +1,136 @@
+name: artifacts
+
+# Generated artifacts are never hand-edited: they are a pure function of the
+# job specification plus the generator code. This workflow re-derives every
+# artifact of the DESeq2 worked example and fails if the result differs from
+# what is committed, then validates each artifact against the real schema of
+# the system that consumes it.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: artifacts-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # The Bioconductor devel image ships node24 only; JavaScript actions
+  # still declare the node20 runtime.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  NXF_ANSI_LOG: false
+  # Pinned so a Nextflow release cannot turn a green run red on its own;
+  # bump it deliberately.
+  NEXTFLOW_VERSION: "26.04.6"
+  EXAMPLE: examples/DESeq2
+  JOB: deseq2-differential-expression
+
+jobs:
+  artifacts:
+    name: Regenerate and validate generated artifacts
+    runs-on: ubuntu-latest
+    container: bioconductor/bioconductor_docker:devel
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checkout directory
+        # The image runs as root while the workspace is owned by the runner
+        # user; without this git refuses to operate on it.
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Install system tooling
+        # libxml2-utils: xmllint. python3-venv: schema validation and
+        # miniwdl. openjdk 17: the JVM Nextflow needs.
+        run: |
+          apt-get update -qq
+          DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+              libxml2-utils python3-venv openjdk-17-jre-headless
+
+      - name: Install BiocJobs
+        run: |
+          options(repos = BiocManager::repositories())
+          BiocManager::install("remotes", ask = FALSE, update = FALSE)
+          remotes::install_deps(dependencies = NA)
+          install.packages(".", repos = NULL, type = "source")
+        shell: Rscript {0}
+
+      - name: Install schema validators
+        run: |
+          python3 -m venv /opt/validators
+          /opt/validators/bin/pip install --quiet --upgrade pip
+          /opt/validators/bin/pip install --quiet jsonschema pyyaml miniwdl
+          curl -fsSL -o /usr/local/bin/nextflow \
+              "https://github.com/nextflow-io/nextflow/releases/download/v$NEXTFLOW_VERSION/nextflow"
+          chmod 0755 /usr/local/bin/nextflow
+          nextflow -version
+
+      - name: Regenerate every artifact of the worked example
+        # The compiled CLI (exec/DESeq2.R, written by
+        # BiocExecute::execCompile()) is deliberately NOT regenerated here:
+        # it needs the BiocExecute feat/biocjobs-specs branch, which is not
+        # on a release repository. Regenerate it by hand when the job
+        # interface changes, following examples/DESeq2/README.md. The five
+        # generators below are pure BiocJobs.
+        run: |
+          Rscript -e 'BiocJobs::biocjobsCLI()' validate "$EXAMPLE"
+          Rscript -e 'BiocJobs::biocjobsCLI()' tes      "$EXAMPLE" "$JOB" \
+              --out "$EXAMPLE/generated/$JOB.tes.json"
+          Rscript -e 'BiocJobs::biocjobsCLI()' galaxy   "$EXAMPLE" "$JOB" \
+              --out "$EXAMPLE/generated/deseq2_differential_expression.xml"
+          Rscript -e 'BiocJobs::biocjobsCLI()' nextflow "$EXAMPLE" "$JOB" \
+              --out "$EXAMPLE/generated/deseq2_differential_expression.nf"
+          Rscript -e 'BiocJobs::biocjobsCLI()' wdl      "$EXAMPLE" "$JOB" \
+              --out "$EXAMPLE/generated/deseq2_differential_expression.wdl"
+          Rscript -e 'BiocJobs::biocjobsCLI()' manifest "$EXAMPLE" \
+              --out "$EXAMPLE/generated/manifest.json"
+
+      - name: Validate the Galaxy tool XML against Galaxy's XSD
+        run: |
+          curl -fsSL -o /tmp/galaxy.xsd \
+              https://raw.githubusercontent.com/galaxyproject/galaxy/dev/lib/galaxy/tool_util/xsd/galaxy.xsd
+          xmllint --noout --schema /tmp/galaxy.xsd \
+              "$EXAMPLE/generated/deseq2_differential_expression.xml"
+
+      - name: Validate the TES task against the GA4GH TES 1.1 schema
+        run: |
+          curl -fsSL -o /tmp/tes.openapi.yaml \
+              https://raw.githubusercontent.com/ga4gh/task-execution-schemas/v1.1/openapi/task_execution_service.openapi.yaml
+          /opt/validators/bin/python .github/scripts/validate-tes-task.py \
+              /tmp/tes.openapi.yaml "$EXAMPLE/generated/$JOB.tes.json"
+
+      - name: Validate the WDL task with miniwdl check
+        run: |
+          /opt/validators/bin/miniwdl check \
+              "$EXAMPLE/generated/deseq2_differential_expression.wdl"
+
+      - name: Validate the Nextflow module with nextflow lint
+        run: |
+          nextflow lint "$EXAMPLE/generated/deseq2_differential_expression.nf"
+
+      - name: Check the manifest is well-formed JSON
+        run: |
+          /opt/validators/bin/python -c \
+              'import json, sys; json.load(open(sys.argv[1]))' \
+              "$EXAMPLE/generated/manifest.json"
+
+      - name: Fail if the committed artifacts are stale
+        # Last, so that a pull request which forgot to regenerate still gets
+        # told whether its generator output is schema-valid.
+        run: |
+          if ! git diff --exit-code -- "$EXAMPLE"; then
+              echo "::error::Committed artifacts under $EXAMPLE differ from the generator output; regenerate and commit them (never hand-edit generated files)."
+              exit 1
+          fi
+          untracked="$(git ls-files --others --exclude-standard -- "$EXAMPLE")"
+          if [ -n "$untracked" ]; then
+              echo "::error::Generated but uncommitted files under $EXAMPLE:"
+              echo "$untracked"
+              exit 1
+          fi
