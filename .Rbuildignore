@@ -1,0 +1,10 @@
+^examples$
+^docs$
+^\.github$
+^\.claude$
+^CONTRIBUTING\.md$
+^check$
+^.*\.Rcheck$
+^.*\.BiocCheck$
+^.*\.tar\.gz$
+^\.DS_Store$
