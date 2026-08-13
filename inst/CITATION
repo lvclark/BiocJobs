@@ -1,0 +1,10 @@
+citHeader("To cite BiocJobs in publications, use:")
+
+bibentry(
+    bibtype  = "Manual",
+    title    = "BiocJobs: Declare and Dispatch Batch Jobs from Bioconductor Packages",
+    author   = person("Bioconductor Core Team"),
+    year     = "2026",
+    note     = paste("R package version", meta$Version),
+    url      = "https://github.com/Bioconductor/BiocJobs"
+)
