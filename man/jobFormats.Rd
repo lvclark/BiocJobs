@@ -7,8 +7,8 @@
 jobFormats()
 }
 \value{
-A \code{data.frame} with columns \code{format}, \code{galaxy}, \code{extension} and
-\code{description}.
+A \code{data.frame} with columns \code{format}, \code{galaxy}, \code{extension}
+and \code{description}.
 }
 \description{
 BiocJobs uses a small controlled vocabulary of file format names in job
@@ -18,5 +18,10 @@ Galaxy datatype and extension) but \code{validateJob()} reports them as notes so
 typos are caught.
 }
 \examples{
-jobFormats()
+formats <- jobFormats()
+head(formats)
+
+## What a spec's `format: tsv` means downstream: the Galaxy datatype of
+## the generated param, and the file extension used for staged files.
+formats[formats$format \%in\% c("tsv", "fastq", "bam"), ]
 }

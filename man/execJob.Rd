@@ -4,12 +4,15 @@
 \alias{execJob}
 \title{Execute a job from an installed package}
 \usage{
-execJob(package, job)
+execJob(package, job, values = NULL)
 }
 \arguments{
 \item{package}{Name of the installed host package.}
 
 \item{job}{Job name as declared in the specification.}
+
+\item{values}{Optional named list of parameter values supplied by a CLI
+layer, bypassing command-line parsing.}
 }
 \value{
 Invisibly, the value of the sourced script.
@@ -19,4 +22,41 @@ The canonical entry point used by generated TES tasks and Galaxy wrappers.
 Locates the job's script inside the installed host package and runs it.
 Command-line arguments after the \code{-e} expression are consumed by the
 script's \code{jobParams()} call.
+}
+\details{
+A CLI layer that has already parsed the command line (such as a
+BiocExecute/Rapp application generated from the job specification) can
+hand its parameter values over directly via \code{values}; the script's
+\code{jobParams()} call then uses them instead of re-parsing
+\code{commandArgs()}.
+Values of \code{NULL}, \code{NA} or \code{""} count as "not
+supplied", so defaults and required-parameter checks behave exactly
+as on the command line.
+}
+\examples{
+## execJob() normally resolves the script inside the *installed* host
+## package.  The toy package ships with BiocJobs but is not installed,
+## so point the development override at its specification.
+toy <- system.file("examples", "toy", package = "BiocJobs")
+yaml <- file.path(toy, "inst", "biocjobs", "toy-normalize.yaml")
+
+counts <- file.path(tempdir(), "execjob-counts.tsv")
+write.table(data.frame(id = c("g1", "g2"), s1 = c(1, 3), s2 = c(5, 7)),
+            counts, sep = "\t", quote = FALSE, row.names = FALSE)
+out <- file.path(tempdir(), "execjob-normalized.tsv")
+
+previous <- Sys.getenv("BIOCJOBS_SPEC", unset = NA)
+Sys.setenv(BIOCJOBS_SPEC = yaml)
+
+## `values` is the hand-over a CLI layer (BiocExecute/Rapp) uses once it
+## has parsed the command line itself.  The equivalent shell run is
+##   Rscript -e 'BiocJobs::execJob("toy", "toy-normalize")'
+##       --matrix counts.tsv --normalized norm.tsv --method log2
+execJob("toy", "toy-normalize",
+        values = list(matrix = counts, normalized = out,
+                      method = "log2", center = FALSE))
+read.delim(out)
+
+if (is.na(previous)) Sys.unsetenv("BIOCJOBS_SPEC") else
+    Sys.setenv(BIOCJOBS_SPEC = previous)
 }

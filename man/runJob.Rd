@@ -32,3 +32,23 @@ package's jobs to be installed: the specification path is passed to the
 child process via the \code{BIOCJOBS_SPEC} environment variable, so a job can
 be exercised straight from a package source checkout.
 }
+\examples{
+## The development loop: edit the script, run it against real data,
+## straight from the source checkout -- nothing needs to be installed.
+toy <- system.file("examples", "toy", package = "BiocJobs")
+job <- readJob(file.path(toy, "inst", "biocjobs", "toy-normalize.yaml"))
+
+counts <- file.path(tempdir(), "runjob-counts.tsv")
+write.table(data.frame(id = c("g1", "g2", "g3"),
+                       s1 = c(1, 2, 3), s2 = c(4, 5, 6)),
+            counts, sep = "\t", quote = FALSE, row.names = FALSE)
+
+result <- runJob(job,
+                 params = list(matrix = counts, method = "none",
+                               center = TRUE),
+                 workdir = tempfile("toyrun_"))
+
+result$status                     # 0 on success
+names(result$outputs)             # every declared output, located
+read.delim(result$outputs[["normalized"]])
+}

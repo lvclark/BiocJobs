@@ -26,6 +26,27 @@ Produces a complete Galaxy tool XML document for a job.  Inputs become
 outputs, and tests declared in the specification's \code{tests} section become
 \verb{<test>} cases.
 }
+\examples{
+toy <- system.file("examples", "toy", package = "BiocJobs")
+job <- readJob(file.path(toy, "inst", "biocjobs", "toy-normalize.yaml"))
+
+doc <- galaxyTool(job)
+xml2::xml_attr(doc, "id")
+
+## Tool versioning follows the IUC convention: the wrapped package
+## version leads, so a Bioconductor release yields a new tool version.
+xml2::xml_attr(doc, "version")
+
+## The command block is the canonical invocation, one --flag per
+## declared parameter.
+cat(xml2::xml_text(xml2::xml_find_first(doc, "//command")))
+
+## Options become typed Galaxy params: a select for `method`, a boolean
+## for `center`, a bounded float for `pseudocount`.
+params <- xml2::xml_find_all(doc, "//inputs/param")
+data.frame(name = xml2::xml_attr(params, "name"),
+           type = xml2::xml_attr(params, "type"))
+}
 \seealso{
 \code{\link[=writeGalaxyTool]{writeGalaxyTool()}}
 }

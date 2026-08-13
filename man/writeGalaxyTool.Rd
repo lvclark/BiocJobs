@@ -7,7 +7,8 @@
 writeGalaxyTool(doc, file, job = NULL)
 }
 \arguments{
-\item{doc}{An \code{xml2::xml_document} from \code{\link[=galaxyTool]{galaxyTool()}}.}
+\item{doc}{An \code{xml2::xml_document}, as produced by
+\code{\link[=galaxyTool]{galaxyTool()}}.}
 
 \item{file}{Output path (conventionally \verb{<tool_id>.xml}).}
 
@@ -21,4 +22,19 @@ staging.  Test file paths are resolved against the host package root.}
 Writes the tool XML and, when \code{job} is supplied and declares tests,
 stages the referenced test files into a \verb{test-data/} directory next to
 the XML — the layout Galaxy's test framework and \verb{planemo test} require.
+}
+\examples{
+toy <- system.file("examples", "toy", package = "BiocJobs")
+job <- readJob(file.path(toy, "inst", "biocjobs", "toy-normalize.yaml"))
+doc <- galaxyTool(job)
+
+## Write into the directory layout planemo expects: the tool XML, plus
+## a test-data/ sibling holding any files the spec's tests reference.
+dir <- tempfile("galaxy_")
+dir.create(dir)
+path <- file.path(dir, "biocjobs_toy_toy_normalize.xml")
+writeGalaxyTool(doc, path, job = job)
+
+list.files(dir, recursive = TRUE)
+cat(head(readLines(path), 6), sep = "\n")
 }

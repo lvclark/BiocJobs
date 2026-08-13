@@ -18,8 +18,17 @@ A \code{BiocJob} object (a validated list).
 Read a single job specification
 }
 \examples{
-yaml <- system.file("examples", "toy", "inst", "biocjobs", "toy-normalize.yaml",
-                    package = "BiocJobs")
+## BiocJobs ships a miniature example package; its declaration is a
+## normal inst/biocjobs/<job>.yaml file.
+toy <- system.file("examples", "toy", package = "BiocJobs")
+yaml <- file.path(toy, "inst", "biocjobs", "toy-normalize.yaml")
+
 job <- readJob(yaml)
 job
+
+## The specification is a plain list: everything generators and the
+## runtime contract need is reachable by name.
+job$version
+vapply(job$options, `[[`, "", "name")
+job$options[[1]]$choices
 }

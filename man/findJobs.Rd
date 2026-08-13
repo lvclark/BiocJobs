@@ -16,6 +16,18 @@ directory, or the name of an installed package.}
 A named list of \code{BiocJob} objects.
 }
 \description{
-Looks for \verb{inst/biocjobs/*.yaml} in a package source directory, or \verb{biocjobs/*.yaml}
-in an installed package.
+Looks for \verb{inst/biocjobs/*.yaml} in a package source directory, or
+\verb{biocjobs/*.yaml} in an installed package.
+}
+\examples{
+## Discovery reads YAML only: no host package code is loaded or run, so
+## this works on an uninstalled source tree or an unpacked tarball.
+toy <- system.file("examples", "toy", package = "BiocJobs")
+jobs <- findJobs(toy)
+names(jobs)
+
+jobs[["toy-normalize"]]
+
+## Packages that declare no jobs simply return an empty list.
+length(findJobs(tempdir()))
 }

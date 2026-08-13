@@ -15,3 +15,13 @@ Absolute path to the job's R script.
 \description{
 Resolve the script path of a job
 }
+\examples{
+toy <- system.file("examples", "toy", package = "BiocJobs")
+job <- readJob(file.path(toy, "inst", "biocjobs", "toy-normalize.yaml"))
+
+script <- jobScript(job)
+basename(script)
+
+## The script is plain R: one jobParams() call, then analysis code.
+cat(head(readLines(script), 6), sep = "\n")
+}

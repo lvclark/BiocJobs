@@ -4,7 +4,12 @@
 \alias{jobCommand}
 \title{Build the command line for a job}
 \usage{
-jobCommand(job, params = list(), rscript = "Rscript")
+jobCommand(
+  job,
+  params = list(),
+  rscript = "Rscript",
+  style = c("rscript", "cli")
+)
 }
 \arguments{
 \item{job}{A \code{BiocJob} object.}
@@ -13,6 +18,9 @@ jobCommand(job, params = list(), rscript = "Rscript")
 (inputs as paths/placeholders, outputs as paths, options as values).}
 
 \item{rscript}{Path or name of the \code{Rscript} executable.}
+
+\item{style}{\code{"rscript"} (default) or \code{"cli"} (BiocExecute/Rapp
+launcher form).}
 }
 \value{
 Character vector: the full argv, element one the executable.
@@ -21,4 +29,28 @@ Character vector: the full argv, element one the executable.
 Returns the argv vector that launches a job with the given parameter
 values.  This single builder is used by \code{runJob()} and by the TES
 generator, so all execution paths stay in lockstep.
+}
+\details{
+Two command styles exist.  \code{"rscript"} (the default) is self-locating
+and works in any environment with R and the packages installed; it is
+what every generated artifact uses.  \code{"cli"} produces the
+\verb{<Package> <job> --flag value} form served by a BiocExecute/Rapp
+launcher; it requires that launcher to be installed on the PATH of the
+execution environment, so it is intended for interactive use and for
+registry consumers that know their environment provides it.
+}
+\examples{
+toy <- system.file("examples", "toy", package = "BiocJobs")
+job <- readJob(file.path(toy, "inst", "biocjobs", "toy-normalize.yaml"))
+
+values <- list(matrix = "counts.tsv", normalized = "norm.tsv",
+               method = "zscore", center = TRUE, pseudocount = 0.5)
+
+## The self-locating form every generated artifact embeds.  Logical
+## values render as the "true"/"false" the runtime contract expects.
+argv <- jobCommand(job, values)
+cat(paste(argv, collapse = " "), "\n")
+
+## The same run through a BiocExecute/Rapp launcher on the PATH.
+cat(paste(jobCommand(job, values, style = "cli"), collapse = " "), "\n")
 }

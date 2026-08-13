@@ -50,6 +50,31 @@ output whose URL is not supplied, and any required option without a
 value, is emitted as a \code{{{...}}} placeholder, making the result a
 submission template.
 }
+\examples{
+toy <- system.file("examples", "toy", package = "BiocJobs")
+job <- readJob(file.path(toy, "inst", "biocjobs", "toy-normalize.yaml"))
+
+## With no URLs supplied the task is a submission template: unknown
+## values are emitted as {{...}} placeholders and tagged as such, so a
+## submission system can refuse to POST it unfilled.
+template <- tesTask(job)
+template$inputs[[1]]$url
+template$tags$biocjobs.template
+
+## Fill in the URLs and the task is ready to submit.
+task <- tesTask(job,
+                inputs = c(matrix = "s3://bucket/counts.tsv"),
+                outputs = c(normalized = "s3://bucket/normalized.tsv"),
+                options = list(method = "zscore"))
+names(task)
+task$resources
+
+## Inputs are staged to fixed container paths and the final executor
+## runs the canonical command against them.
+last <- task$executors[[length(task$executors)]]
+last$image
+cat(paste(unlist(last$command), collapse = " "), "\n")
+}
 \seealso{
 \code{\link[=writeTesTask]{writeTesTask()}}
 }

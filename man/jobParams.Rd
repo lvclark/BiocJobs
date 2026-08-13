@@ -31,3 +31,40 @@ Output parameters that are not supplied default to \verb{<name>.<extension>}
 in the current working directory; parent directories of supplied output
 paths are created.
 }
+\examples{
+## In a real job script this is the first line, and `args` comes from
+## the command line.  Here the arguments are supplied explicitly, and
+## the specification of the (uninstalled) toy package is pointed at with
+## BIOCJOBS_SPEC -- exactly the development workflow runJob() automates.
+toy <- system.file("examples", "toy", package = "BiocJobs")
+yaml <- file.path(toy, "inst", "biocjobs", "toy-normalize.yaml")
+
+counts <- file.path(tempdir(), "counts.tsv")
+write.table(data.frame(id = c("g1", "g2"), s1 = c(1, 4), s2 = c(9, 16)),
+            counts, sep = "\t", quote = FALSE, row.names = FALSE)
+
+previous <- Sys.getenv("BIOCJOBS_SPEC", unset = NA)
+Sys.setenv(BIOCJOBS_SPEC = yaml)
+
+params <- jobParams(
+    "toy", "toy-normalize",
+    args = c("--matrix", counts,
+             "--normalized", file.path(tempdir(), "normalized.tsv"),
+             "--method", "zscore", "--center", "true"))
+
+## Inputs and outputs come back as paths, ready to read and write.
+basename(params$matrix)
+basename(params$normalized)
+
+## Options are coerced to their declared types and unset ones take
+## their declared defaults: `center` is a logical, `pseudocount` a
+## double, `method` a validated member of the declared choices.
+str(params[c("method", "center", "pseudocount")])
+
+## Undeclared or ill-typed values are rejected by name.
+try(jobParams("toy", "toy-normalize",
+              args = c("--matrix", counts, "--method", "sqrt")))
+
+if (is.na(previous)) Sys.unsetenv("BIOCJOBS_SPEC") else
+    Sys.setenv(BIOCJOBS_SPEC = previous)
+}

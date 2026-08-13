@@ -18,3 +18,22 @@ Checks a specification for structural problems.  Errors make the job
 unusable; notes are advisory (for example an unrecognized file format,
 which is passed through verbatim to generators).
 }
+\examples{
+toy <- system.file("examples", "toy", package = "BiocJobs")
+yaml <- file.path(toy, "inst", "biocjobs", "toy-normalize.yaml")
+
+## A clean specification reports nothing.
+validateJob(yaml)
+
+## Introduce two problems a maintainer might actually make: an option
+## whose flag collides with an input, and a default outside its choices.
+job <- readJob(yaml)
+job$options[[1]]$name <- "matrix"
+job$options[[1]]$default <- "sqrt"
+issues <- validateJob(job)
+for (i in issues)
+    cat(i$severity, ": ", i$message, "\n", sep = "")
+
+## Errors make a job unusable; notes are advisory.
+table(vapply(issues, `[[`, "", "severity"))
+}

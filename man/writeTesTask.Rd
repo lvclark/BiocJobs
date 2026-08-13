@@ -17,3 +17,17 @@ The JSON string, invisibly when \code{file} is given.
 \description{
 Serialize a TES task to JSON
 }
+\examples{
+toy <- system.file("examples", "toy", package = "BiocJobs")
+job <- readJob(file.path(toy, "inst", "biocjobs", "toy-normalize.yaml"))
+task <- tesTask(job, inputs = c(matrix = "s3://bucket/counts.tsv"))
+
+## Without `file` the JSON is returned, ready to POST to /tasks.
+json <- writeTesTask(task)
+substr(json, 1, 120)
+
+## With `file` it is written for check-in beside the package.
+path <- file.path(tempdir(), "toy-normalize.tes.json")
+writeTesTask(task, file = path)
+cat(head(readLines(path), 12), sep = "\n")
+}

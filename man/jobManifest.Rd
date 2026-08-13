@@ -20,3 +20,23 @@ version) and \code{jobs}; class \code{"BiocJobManifest"}.
 Summarizes every job declared by a package into a single machine-readable
 structure, suitable for aggregation into a Bioconductor-wide job registry.
 }
+\examples{
+toy <- system.file("examples", "toy", package = "BiocJobs")
+manifest <- jobManifest(toy)
+
+## Registry-facing identity: package, version, and the declared jobs.
+manifest$package
+manifest$version
+vapply(manifest$jobs, `[[`, "", "name")
+
+## Each entry carries the full typed interface plus the canonical
+## command a dispatcher would run.
+job <- manifest$jobs[[1]]
+str(job$options[[1]])
+cat(paste(unlist(job$command), collapse = " "), "\n")
+
+## Written as JSON, per-package manifests concatenate into a registry.
+path <- file.path(tempdir(), "toy-manifest.json")
+invisible(jobManifest(toy, file = path))
+cat(head(readLines(path), 8), sep = "\n")
+}
