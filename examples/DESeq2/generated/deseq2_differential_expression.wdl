@@ -45,7 +45,7 @@ task deseq2_differential_expression {
     }
 
     runtime {
-        docker: "bioconductor/bioconductor_docker:RELEASE_3_23"
+        docker: "ghcr.io/almahmoud/deseq2:devel"
         cpu: 1
         memory: "4 GB"
         disks: "local-disk 10 HDD"

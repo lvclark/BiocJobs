@@ -4,7 +4,7 @@
 
 process DESEQ2_DIFFERENTIAL_EXPRESSION {
     tag "deseq2-differential-expression"
-    container 'bioconductor/bioconductor_docker:RELEASE_3_23'
+    container 'ghcr.io/almahmoud/deseq2:devel'
     cpus 1
     memory '4 GB'
     disk '10 GB'

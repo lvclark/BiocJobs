@@ -47,7 +47,7 @@
   },
   "executors": [
     {
-      "image": "bioconductor/bioconductor_docker:RELEASE_3_23",
+      "image": "ghcr.io/almahmoud/deseq2:devel",
       "command": [
         "Rscript",
         "-e",
@@ -56,7 +56,7 @@
       "workdir": "/tmp/biocjob"
     },
     {
-      "image": "bioconductor/bioconductor_docker:RELEASE_3_23",
+      "image": "ghcr.io/almahmoud/deseq2:devel",
       "command": [
         "Rscript",
         "-e",
