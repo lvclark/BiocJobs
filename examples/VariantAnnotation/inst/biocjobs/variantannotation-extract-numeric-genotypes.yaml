@@ -14,12 +14,12 @@ description: >
   alternative alleles, and genotypes expressed as alternative allele count.
 version: "1.0.0"
 license: MIT
-script: variantannotation-extract-numeric-genotypes.R
+script: scripts/variantannotation-extract-numeric-genotypes.R
 depends: []   # runtime deps beyond the host package (shrinkage)
 
 inputs:
   - name: vcf
-    format: vcf.bgz
+    format: vcf
     label: VCF (variant call format) file
     help: >
       Bgzipped VCF in standard format, listing variant information and genotypes.
@@ -39,7 +39,7 @@ inputs:
       region. Additional columns are optional. The script will only process
       variants in regions defined by the BED file.
   - name: samples
-    format: text
+    format: txt
     label: File listing samples to include
     help: >
       Plain text file listing one sample per line. Sample names must match the
@@ -48,7 +48,7 @@ inputs:
 
 outputs:
   - name: genotypes
-    format: tsv.gz
+    format: tsv
     label: Table of numeric genotypes
     help: >
       Gzip-compressed tab-delimited file with column headers. The first column,
@@ -63,17 +63,17 @@ resources:
   cpus: 1
   memory_gb: 16
   disk_gb: 10
- 
- citations:
+
+citations:
   - doi: 10.1093/bioinformatics/btu168 # Obenchain, Lawrence et al. 2014
- 
- tests:
+
+tests:
   - inputs:
       vcf: test-data/Ashkenazim_GIAB_small.glnexus.vcf.bgz
       index: test-data/Ashkenazim_GIAB_small.glnexus.vcf.bgz.tbi
       bed: test-data/Ashkenazim_GIAB_regions.bed
       samples: test-data/Ashkenazim_GIAB_samples.txt
-  - outputs:
+    outputs:
       genotypes:
         file: test-data/numeric_genotypes.tsv.gz
         compare: sim_size
