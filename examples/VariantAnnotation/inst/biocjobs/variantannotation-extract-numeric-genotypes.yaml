@@ -19,10 +19,10 @@ depends: []   # runtime deps beyond the host package (shrinkage)
 
 inputs:
   - name: vcf
-    format: vcf
+    format: vcf.bgz
     label: VCF (variant call format) file
     help: >
-      VCF in standard format, listing variant information and genotypes.
+      Bgzipped VCF in standard format, listing variant information and genotypes.
   - name: index
     format: tbi
     label: TBI tabix index for VCF
@@ -33,4 +33,48 @@ inputs:
     format: bed
     label: BED file of regions to include
     help: >
-      
+      BED files are tab-delimited. The first column contains the chromosome name,
+      the second column the 0-indexed position indicating the start of the region,
+      and the third column the 1-indexed position indicating the end of the
+      region. Additional columns are optional. The script will only process
+      variants in regions defined by the BED file.
+  - name: samples
+    format: text
+    label: File listing samples to include
+    help: >
+      Plain text file listing one sample per line. Sample names must match the
+      column headers in the VCF. Samples not listed in this file will not be
+      included in the output.
+
+outputs:
+  - name: genotypes
+    format: tsv.gz
+    label: Table of numeric genotypes
+    help: >
+      Gzip-compressed tab-delimited file with column headers. The first column,
+      Chrom, indicates chromosome name. The second column, Pos, indicates the
+      1-indexed position. The third column, Ref, and fourth column, Alt, indicate
+      reference and alternative alleles, respectively. All remaining columns
+      indicate genotypes, with one column for each sample. Integers indicate
+      counts of the alternative allele. Multiallelic loci are split into one
+      row per alternative allele. Missing data are indicated by NA.
+
+resources:
+  cpus: 1
+  memory_gb: 16
+  disk_gb: 10
+ 
+ citations:
+  - doi: 10.1093/bioinformatics/btu168 # Obenchain, Lawrence et al. 2014
+ 
+ tests:
+  - inputs:
+      vcf: test-data/Ashkenazim_GIAB_small.glnexus.vcf.bgz
+      index: test-data/Ashkenazim_GIAB_small.glnexus.vcf.bgz.tbi
+      bed: test-data/Ashkenazim_GIAB_regions.bed
+      samples: test-data/Ashkenazim_GIAB_samples.txt
+  - outputs:
+      genotypes:
+        file: test-data/numeric_genotypes.tsv.gz
+        compare: sim_size
+        delta: 3000
