@@ -10,7 +10,7 @@ process VARIANTANNOTATION_EXTRACT_NUMERIC_GENOTYPES {
     disk '10 GB'
 
     input:
-    // VCF (variant call format) file (vcf)
+    // VCF (variant call format) file (vcf.bgz)
     path vcf
     // TBI tabix index for VCF (tbi)
     path index
@@ -20,7 +20,7 @@ process VARIANTANNOTATION_EXTRACT_NUMERIC_GENOTYPES {
     path samples
 
     output:
-    path 'genotypes.tsv', emit: genotypes
+    path 'numeric_genotypes.tsv.gz', emit: numeric_genotypes
 
     script:
     """
@@ -29,11 +29,11 @@ process VARIANTANNOTATION_EXTRACT_NUMERIC_GENOTYPES {
         --index '${(index as String).replace("'", "'\\''")}' \\
         --bed '${(bed as String).replace("'", "'\\''")}' \\
         --samples '${(samples as String).replace("'", "'\\''")}' \\
-        --genotypes 'genotypes.tsv'
+        --numeric_genotypes 'numeric_genotypes.tsv.gz'
     """
 
     stub:
     """
-    touch 'genotypes.tsv'
+    touch 'numeric_genotypes.tsv.gz'
     """
 }

@@ -19,7 +19,7 @@ depends: []   # runtime deps beyond the host package (shrinkage)
 
 inputs:
   - name: vcf
-    format: vcf
+    format: vcf.bgz
     label: VCF (variant call format) file
     help: >
       Bgzipped VCF in standard format, listing variant information and genotypes.
@@ -47,8 +47,8 @@ inputs:
       included in the output.
 
 outputs:
-  - name: genotypes
-    format: tsv
+  - name: numeric_genotypes
+    format: tsv.gz
     label: Table of numeric genotypes
     help: >
       Gzip-compressed tab-delimited file with column headers. The first column,

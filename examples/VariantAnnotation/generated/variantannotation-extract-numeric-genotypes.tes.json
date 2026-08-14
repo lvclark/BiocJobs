@@ -6,7 +6,7 @@
       "name": "vcf",
       "description": "VCF (variant call format) file",
       "url": "{{inputs.vcf.url}}",
-      "path": "/tmp/biocjob/inputs/vcf.vcf",
+      "path": "/tmp/biocjob/inputs/vcf.vcf.bgz",
       "type": "FILE"
     },
     {
@@ -33,10 +33,10 @@
   ],
   "outputs": [
     {
-      "name": "genotypes",
+      "name": "numeric_genotypes",
       "description": "Table of numeric genotypes",
-      "url": "{{outputs.genotypes.url}}",
-      "path": "/tmp/biocjob/outputs/genotypes.tsv",
+      "url": "{{outputs.numeric_genotypes.url}}",
+      "path": "/tmp/biocjob/outputs/numeric_genotypes.tsv.gz",
       "type": "FILE"
     }
   ],
@@ -62,15 +62,15 @@
         "-e",
         "BiocJobs::execJob(\"VariantAnnotation\", \"variantannotation-extract-numeric-genotypes\")",
         "--vcf",
-        "/tmp/biocjob/inputs/vcf.vcf",
+        "/tmp/biocjob/inputs/vcf.vcf.bgz",
         "--index",
         "/tmp/biocjob/inputs/index.tbi",
         "--bed",
         "/tmp/biocjob/inputs/bed.bed",
         "--samples",
         "/tmp/biocjob/inputs/samples.txt",
-        "--genotypes",
-        "/tmp/biocjob/outputs/genotypes.tsv"
+        "--numeric_genotypes",
+        "/tmp/biocjob/outputs/numeric_genotypes.tsv.gz"
       ],
       "workdir": "/tmp/biocjob"
     }
