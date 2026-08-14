@@ -46,3 +46,6 @@ GTnum[GT == '.'] <- NA
 write.table(cbind(vardf, GTnum),
             file = "numeric_genotypes.tsv.gz",
             sep = "\t", row.names = FALSE, col.names = TRUE)
+
+# Provenance to the job log.
+message(paste(utils::capture.output(utils::sessionInfo()), collapse = "\n"))
