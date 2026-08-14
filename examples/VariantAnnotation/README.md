@@ -19,3 +19,15 @@ Rscript -e 'BiocJobs::biocjobsCLI()' wdl      examples/VariantAnnotation variant
 Rscript -e 'BiocJobs::biocjobsCLI()' manifest examples/VariantAnnotation --out examples/VariantAnnotation/generated/manifest.json
 Rscript -e "BiocExecute::execCompile('examples/VariantAnnotation')"
 ```
+
+Run the job locally:
+
+``` bash
+Rscript -e 'BiocJobs::biocjobsCLI()' run examples/VariantAnnotation \
+    variantannotation-extract-numeric-genotypes \
+    --vcf examples/VariantAnnotation/test-data/Ashkenazim_GIAB_small.glnexus.vcf.bgz \
+    --index examples/VariantAnnotation/test-data/Ashkenazim_GIAB_small.glnexus.vcf.bgz.tbi \
+    --samples examples/VariantAnnotation/test-data/Ashkenazim_GIAB_samples.txt \
+    --bed examples/VariantAnnotation/test-data/Ashkenazim_GIAB_regions.bed \
+    --genotypes numeric_genotypes.tsv.gz
+```
