@@ -28,5 +28,6 @@ Rscript -e 'BiocJobs::biocjobsCLI()' run examples/VariantAnnotation \
     --vcf examples/VariantAnnotation/test-data/Ashkenazim_GIAB_small.glnexus.vcf.bgz \
     --index examples/VariantAnnotation/test-data/Ashkenazim_GIAB_small.glnexus.vcf.bgz.tbi \
     --samples examples/VariantAnnotation/test-data/Ashkenazim_GIAB_samples.txt \
-    --bed examples/VariantAnnotation/test-data/Ashkenazim_GIAB_regions.bed
+    --bed examples/VariantAnnotation/test-data/Ashkenazim_GIAB_regions.bed \
+    --numeric_genotypes mygenos.tsv.gz
 ```

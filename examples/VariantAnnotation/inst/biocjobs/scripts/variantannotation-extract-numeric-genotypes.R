@@ -44,7 +44,7 @@ GTnum[GT == '.'] <- NA
 
 # Export to TSV
 write.table(cbind(vardf, GTnum),
-            file = "numeric_genotypes.tsv.gz",
+            file = params$numeric_genotypes,
             sep = "\t", row.names = FALSE, col.names = TRUE)
 
 # Provenance to the job log.
